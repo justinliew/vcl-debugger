@@ -2,208 +2,365 @@
 <html>
 
 <head>
-    <title>Tutorial 1: Getting Started</title>
+    <title>VCL Debugger</title>
 
-    <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/cytoscape@3.27.0/dist/cytoscape.min.js"></script>
     <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
     <script src="https://unpkg.com/cytoscape-dagre@2.4.0/cytoscape-dagre.js"></script>
     <script src="https://unpkg.com/cytoscape-undo-redo@1.0.5/cytoscape-undo-redo.js"></script>
     <script src="https://unpkg.com/cytoscape-expand-collapse@4.1.1/cytoscape-expand-collapse.js"></script>
 
     <style>
-        #cy {
-            width: 100%;
-            height: 100%;
-            position: absolute;
+        #sidebar {
             top: 0;
             left: 0;
+            width: 200px;
+            bottom: 0;
+            background: #f7f7f7;
+            overflow-y: auto;
+            border-right: 1px solid #ccc;
+            padding: 10px;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        .sidebar-item {
+            padding: 5px;
+            cursor: pointer;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .sidebar-item:hover {
+            background: #eee;
+        }
+
+        #cy {
+            width: 80%;
+            height: 100%;
+            top: 0;
+            left: 200px;
         }
     </style>
 </head>
 
-<body>
-    <div id="cy"></div>
+<body style="margin:0; height:100vh; display:flex; flex-direction:column;">
+    <!-- Top input bar -->
+    <div style="background:#eee; border-bottom:1px solid #ccc; padding:10px;">
+        Sid: <input type="text" id="sidInput" placeholder="">
+        Version: <input type="text" id="versionInput" placeholder="">
+        <button id="loadButton">Load</button>
+    </div>
+
+    <!-- Main content: sidebar + Cytoscape -->
+    <div style="flex:1; display:flex; min-height:0;">
+        <div id="sidebar"
+            style="width:200px; overflow-y:auto; border-right:1px solid #ccc; padding:10px; background:#f7f7f7;"></div>
+        <div id="cy" style="flex:1;"></div>
+    </div>
     <script>
-        fetch('./elements.json')
-            .then(res => res.json())
-            .then(data => {
-                cytoscape.use(cytoscapeDagre);
-                cytoscape.use(cytoscapeExpandCollapse);
+        const searchParams = new URLSearchParams(window.location.search);
+        const gSecret = searchParams.get('secret');
 
-                const collapsedState = new Map(); // Tracks collapsed children by parent ID
+        let functionGraphs = new Map();
+        let cy;
+        let collapsedState = new Map();
 
-                const cy = cytoscape({
-                    container: document.getElementById('cy'),
-                    elements: data.elements,
-                    minZoom: 0.5,
-                    maxZoom: 2.5,
-                    style: [
-                        {
-                            selector: 'node[name]',
-                            style: {
-                                'shape': 'roundrectangle',
-                                'text-wrap': 'wrap',
-                                'text-max-width': 250,
-                                'background-color': '#efefef',
-                                'label': 'data(name)',
-                                'color': '#333',
-                                'text-valign': 'center',
-                                'text-halign': 'center',
-                                'text-margin-x': 8,
-                                'font-family': 'monospace',
-                                'font-size': 10,
-                                'width': 'label',
-                                'height': 'label',
-                                'padding': '8px'
-                            }
-                        },
-                        { selector: 'node[type = "parent"]', style: { 'background-color': '#e0e0e0' } },
-                        { selector: 'node[type = "conditional"]', style: { 'background-color': '#FFDD57' } },
-                        { selector: 'node[type = "terminal"]', style: { 'background-color': '#EF5350' } },
-                        {
-                            selector: 'node[type = "start"]',
-                            style: { 'background-color': '#81C784', 'shape': 'ellipse' }
-                        },
-                        {
-                            selector: 'edge[name]',
-                            style: {
-                                'curve-style': 'bezier',
-                                'target-arrow-shape': 'triangle',
-                                'target-arrow-color': '#999',
-                                'line-color': '#999',
-                                'font-family': 'monospace',
-                                'font-size': 10,
-                                'width': 2,
-                                'label': 'data(name)'
-                            }
-                        },
-                        {
-                            selector: 'edge',
-                            style: {
-                                'curve-style': 'bezier',
-                                'target-arrow-shape': 'triangle',
-                                'target-arrow-color': '#999',
-                                'line-color': '#999',
-                                'font-family': 'monospace',
-                                'font-size': 10,
-                                'width': 2
-                            }
-                        },
-                        {
-                            selector: 'node.cy-expand-collapse-collapsed-node',
-                            style: {
-                                'background-color': '#ADD8E6',
-                                'shape': 'roundrectangle',
-                                'label': 'data(name)',
-                                'width': 'label',
-                                'height': 'label',
-                                'text-valign': 'center',
-                                'text-halign': 'center',
-                                'text-wrap': 'wrap',
-                                'border-width': 2,
-                                'border-color': '#999'
-                            }
-                        },
-                        {
-                            selector: 'node:parent',
-                            style: { 'label': '' }
+        function findNameFromId(id) {
+            return functionGraphs.get(id).name;
+        }
+
+        function renderSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.innerHTML = '<h3>Functions</h3>';
+
+            for (const [fn, { nodes }] of functionGraphs.entries()) {
+                const item = document.createElement('div');
+                item.textContent = findNameFromId(fn);
+                item.className = 'sidebar-item';
+                item.addEventListener('click', () => loadFunctionGraph(fn));
+                sidebar.appendChild(item);
+            }
+        }
+
+        function loadFunctionGraph(fnName) {
+            console.log("loadFunctionGraph");
+            const { nodes, edges } = functionGraphs.get(fnName);
+
+            if (cy) {
+                cy.destroy();
+            }
+
+            cy = cytoscape({
+                container: document.getElementById('cy'),
+                elements: [...nodes, ...edges],
+                minZoom: 0.5,
+                maxZoom: 2.5,
+                style: [
+                    {
+                        selector: 'node[name]',
+                        style: {
+                            'shape': 'roundrectangle',
+                            'text-wrap': 'wrap',
+                            'text-max-width': 400,
+                            'background-color': '#eeffee',
+                            'label': 'data(name)',
+                            'color': '#333',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'text-margin-x': 8,
+                            'font-family': 'monospace',
+                            'font-size': 10,
+                            'width': 'data(width)',
+                            'height': 'data(height)',
+                            'padding': '8px',
+                            'border-width': 2,
+                            'border-color': '#eee'
                         }
-                    ]
+                    },
+                    { selector: 'node[type = "sub"]', style: { 'background-color': '#e0e0e0' } },
+                    { selector: 'node[type = "parent"]', style: { 'background-color': '#e0e0e0' } },
+                    { selector: 'node[type = "conditional"]', style: { 'background-color': '#FFDD57' } },
+                    { selector: 'node[type = "terminal"]', style: { 'background-color': '#EF5350' } },
+                    {
+                        selector: 'node[type = "start"]',
+                        style: { 'background-color': '#81C784', 'shape': 'ellipse' }
+                    },
+                    {
+                        selector: 'edge[name]',
+                        style: {
+                            'curve-style': 'bezier',
+                            'target-arrow-shape': 'triangle',
+                            'target-arrow-color': '#999',
+                            'line-color': '#999',
+                            'font-family': 'monospace',
+                            'font-size': 10,
+                            'width': 2,
+                            'label': 'data(name)'
+                        }
+                    },
+                    {
+                        selector: 'edge',
+                        style: {
+                            'curve-style': 'bezier',
+                            'target-arrow-shape': 'triangle',
+                            'target-arrow-color': '#999',
+                            'line-color': '#999',
+                            'font-family': 'monospace',
+                            'font-size': 10,
+                            'width': 2
+                        }
+                    },
+                    {
+                        selector: 'node.cy-expand-collapse-collapsed-node',
+                        style: {
+                            'background-color': '#ADD8E6',
+                            'shape': 'roundrectangle',
+                            'label': 'data(name)',
+                            'width': 'data(width)',
+                            'height': 'data(height)',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'text-wrap': 'wrap',
+                            'border-width': 2,
+                            'border-color': '#eee'
+                        }
+                    },
+                    {
+                        selector: 'node:parent',
+                        style: { 'label': '' }
+                    }
+                ]
+            });
+
+            cy.ready(() => {
+                const layout = cy.layout({
+                    name: 'dagre',
+                    rankDir: 'TB',
+                    nodeSep: 75,
+                    edgeSep: 15,
+                    rankSep: 100,
+                    ranker: 'network-simplex',
+                    minLen: 1,
+                    animate: false,
+                    spacingFactor: 1.2,
+                    avoidOverlap: true,
+                    padding: 10
                 });
 
-                cy.ready(() => {
-                    const layout = cy.layout({
-                        name: 'dagre',
-                        rankDir: 'TB',
-                        nodeSep: 75,
-                        edgeSep: 15,
-                        rankSep: 100,
-                        ranker: 'network-simplex',
-                        minLen: 1,
-                        animate: false,
-                        spacingFactor: 1.2,
-                        avoidOverlap: true,
-                        padding: 10
+                layout.on('layoutstop', () => {
+                    const bb = cy.elements().boundingBox();
+                    cy.zoom(1.5);
+                    cy.pan({ x: bb.w / 2, y: -bb.y1 + 200 });
+
+                    cy.undoRedo({});
+                    cy.nodes('node:parent').forEach(parent => {
+                        const label = parent.data('name') || '(group)';
+                        parent.data('collapsedLabel', label);
                     });
 
-                    layout.on('layoutstop', () => {
-                        const bb = cy.elements().boundingBox();
-                        cy.zoom(1.5);
-                        cy.pan({ x: bb.w / 2, y: -bb.y1 + 200 });
+                    const expandCollapseApi = cy.expandCollapse({
+                        layoutBy: { name: 'dagre', rankDir: 'TB' },
+                        animate: false,
+                        cueEnabled: false
+                    });
+                    cy.autoungrabify(true);
+                    const allParents = cy.nodes().filter(n => n.isParent());
 
-                        cy.undoRedo({});
-                        cy.nodes('node:parent').forEach(parent => {
-                            const label = parent.data('name') || '(group)';
-                            parent.data('collapsedLabel', label);
-                        });
+                    // Sort by depth: deeper parents first
+                    const sortedByDepth = allParents.sort((a, b) => {
+                        return a.descendants().length - b.descendants().length;
+                    });
 
-                        const expandCollapseApi = cy.expandCollapse({
-                            layoutBy: { name: 'dagre', rankDir: 'TB' },
-                            animate: false,
-                            cueEnabled: false
-                        });
-
-                        function getAllDescendants(node) {
-                            const descendants = [];
-
-                            function collect(id) {
-                                const children = cy.nodes(`[parent = "${id}"]`);
-                                for (const child of children) {
-                                    descendants.push(child);
-                                    collect(child.id()); // recursive
-                                }
-                            }
-
-                            collect(node.id());
-                            return descendants;
+                    // Collapse all in order
+                    for (const parent of sortedByDepth) {
+                        try {
+                            expandCollapseApi.collapse(parent);
+                        } catch (e) {
+                            console.warn('Collapse error on startup:', parent.id(), e);
                         }
+                    }
 
-                        // Store collapsed descendants before collapsing
-                        async function expandAllDescendantsRecursive(node, api) {
-                            const toExpand = getAllDescendants(node)
-                                .filter(n => n.hasClass('cy-expand-collapse-collapsed-node'));
-                            collapsedState.set(node.id(), toExpand);
+                    function getAllDescendants(node) {
+                        const descendants = [];
 
-                            for (const collapsed of toExpand) {
-                                try {
-                                    await api.expand(collapsed);
-                                } catch (e) {
-                                    console.warn('Expansion error on', collapsed, e);
-                                }
+                        function collect(id) {
+                            const children = cy.nodes(`[parent = "${id}"]`);
+                            for (const child of children) {
+                                descendants.push(child);
+                                collect(child.id()); // recursive
                             }
                         }
 
-                        // Click-to-toggle collapse/expand
-                        cy.on('tap', 'node', async (e) => {
-                            const node = e.target;
-                            if (!node.isParent() && !node.hasClass('cy-expand-collapse-collapsed-node')) return;
+                        collect(node.id());
+                        return descendants;
+                    }
 
+                    // Store collapsed descendants before collapsing
+                    async function expandAllDescendantsRecursive(node, api) {
+                        const toExpand = getAllDescendants(node)
+                            .filter(n => n.hasClass('cy-expand-collapse-collapsed-node'));
+                        collapsedState.set(node.id(), toExpand);
+
+                        for (const collapsed of toExpand) {
                             try {
-                                if (expandCollapseApi.expandableNodes([node]).length > 0) {
-                                    // Restore previous collapsed children if stored
-                                    const collapsedChildren = collapsedState.get(node.id());
-                                    console.log("collapsed children ", collapsedChildren);
-                                    expandCollapseApi.expand(node);
-                                    if (collapsedChildren) {
-                                        for (const child of collapsedChildren) {
-                                            if (child.nonempty() && expandCollapseApi.collapsibleNodes([child]).length > 0) {
-                                                expandCollapseApi.collapse(child);
-                                            }
+                                await api.expand(collapsed);
+                            } catch (e) {
+                                console.warn('Expansion error on', collapsed, e);
+                            }
+                        }
+                    }
+
+                    async function handle_expand_collapse(node) {
+                        try {
+                            if (expandCollapseApi.expandableNodes([node]).length > 0) {
+                                // Restore previous collapsed children if stored
+                                const collapsedChildren = collapsedState.get(node.id());
+                                expandCollapseApi.expand(node);
+                                if (collapsedChildren) {
+                                    for (const child of collapsedChildren) {
+                                        if (child.nonempty() && expandCollapseApi.collapsibleNodes([child]).length > 0) {
+                                            expandCollapseApi.collapse(child);
                                         }
                                     }
-                                } else if (expandCollapseApi.collapsibleNodes([node]).length > 0) {
-                                    await expandAllDescendantsRecursive(node, expandCollapseApi); // FULLY expand first
-                                    expandCollapseApi.collapse(node);
                                 }
-                            } catch (err) {
-                                console.warn('Expand/collapse error:', err);
+                            } else if (expandCollapseApi.collapsibleNodes([node]).length > 0) {
+                                await expandAllDescendantsRecursive(node, expandCollapseApi); // FULLY expand first
+                                expandCollapseApi.collapse(node);
                             }
-                        });
-                    });
+                        } catch (err) {
+                            console.warn('Expand/collapse error:', err);
+                        }
+                    }
 
-                    layout.run();
+                    // Click-to-toggle collapse/expand
+                    cy.on('tap', 'node', async (e) => {
+                        const node = e.target;
+                        handle_expand_collapse(node);
+                    });
                 });
+
+                layout.run();
             });
+        }
+
+        function estimateWidth(name) {
+            const lines = name.split('\n').length;
+            const longestLine = name.split('\n').reduce((a, b) => a.length > b.length ? a : b, '').length;
+            return Math.min(400, 10 * longestLine + 20); // rough guess
+        }
+
+        function estimateHeight(label) {
+            const lineHeight = 14; // ~10px font + spacing
+            const maxWidth = 400;
+            const averageCharWidth = 7;
+            const charsPerLine = Math.floor(maxWidth / averageCharWidth);
+
+            const lines = label.split('\n').flatMap(line => {
+                const wrappedLines = Math.ceil(line.length / charsPerLine);
+                return Array(wrappedLines).fill(0);
+            });
+
+            const numLines = lines.length || 1;
+            const padding = 16;
+
+            return (numLines * lineHeight) + padding;
+        }
+
+        function groupElementsByFunction(elements) {
+            const graphs = new Map();
+
+            for (const el of elements) {
+                const fn = el.data?.root || 'Unknown';
+                if (!graphs.has(fn)) {
+                    graphs.set(fn, { name: el.data?.name || 'Unknown', nodes: [], edges: [] });
+                }
+
+                if (el.type === 'edge') {
+                    graphs.get(fn).edges.push(el);
+                } else {
+                    // Estimate size before pushing the node
+                    el.data.width = estimateWidth(el.data.name || '');
+                    el.data.height = estimateHeight(el.data.name || '');
+                    graphs.get(fn).nodes.push(el);
+                }
+            }
+
+            return graphs;
+        }
+
+        document.getElementById('loadButton').addEventListener('click', () => {
+            const sid = encodeURIComponent(document.getElementById('sidInput').value);
+            const version = encodeURIComponent(document.getElementById('versionInput').value);
+
+            if (!sid || !version) {
+                alert("Please enter both sid and version");
+                return;
+            }
+
+            let headers = {
+                "sid": sid,
+                "version": version,
+                "fastly_key": gSecret
+            };
+
+            //            fetch('./elements.json')
+            fetch("https://vcl-debugger.edgecompute.app/get_flow", {
+                headers: headers
+            })
+                .then(res => {
+                    if (!res.ok) throw new Error("Failed to fetch elements.json");
+                    return res.json();
+                })
+                .then(data => {
+                    functionGraphs = groupElementsByFunction(data.elements);
+                    renderSidebar();
+                })
+                .catch(err => {
+                    console.error("Fetch error:", err);
+                    alert("Error fetching data. See console for details.");
+                });
+        });
+
     </script>
 </body>
 
