@@ -1,0 +1,210 @@
+<!doctype html>
+<html>
+
+<head>
+    <title>Tutorial 1: Getting Started</title>
+
+    <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre@2.4.0/cytoscape-dagre.js"></script>
+    <script src="https://unpkg.com/cytoscape-undo-redo@1.0.5/cytoscape-undo-redo.js"></script>
+    <script src="https://unpkg.com/cytoscape-expand-collapse@4.1.1/cytoscape-expand-collapse.js"></script>
+
+    <style>
+        #cy {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="cy"></div>
+    <script>
+        fetch('./elements.json')
+            .then(res => res.json())
+            .then(data => {
+                cytoscape.use(cytoscapeDagre);
+                cytoscape.use(cytoscapeExpandCollapse);
+
+                const collapsedState = new Map(); // Tracks collapsed children by parent ID
+
+                const cy = cytoscape({
+                    container: document.getElementById('cy'),
+                    elements: data.elements,
+                    minZoom: 0.5,
+                    maxZoom: 2.5,
+                    style: [
+                        {
+                            selector: 'node[name]',
+                            style: {
+                                'shape': 'roundrectangle',
+                                'text-wrap': 'wrap',
+                                'text-max-width': 250,
+                                'background-color': '#efefef',
+                                'label': 'data(name)',
+                                'color': '#333',
+                                'text-valign': 'center',
+                                'text-halign': 'center',
+                                'text-margin-x': 8,
+                                'font-family': 'monospace',
+                                'font-size': 10,
+                                'width': 'label',
+                                'height': 'label',
+                                'padding': '8px'
+                            }
+                        },
+                        { selector: 'node[type = "parent"]', style: { 'background-color': '#e0e0e0' } },
+                        { selector: 'node[type = "conditional"]', style: { 'background-color': '#FFDD57' } },
+                        { selector: 'node[type = "terminal"]', style: { 'background-color': '#EF5350' } },
+                        {
+                            selector: 'node[type = "start"]',
+                            style: { 'background-color': '#81C784', 'shape': 'ellipse' }
+                        },
+                        {
+                            selector: 'edge[name]',
+                            style: {
+                                'curve-style': 'bezier',
+                                'target-arrow-shape': 'triangle',
+                                'target-arrow-color': '#999',
+                                'line-color': '#999',
+                                'font-family': 'monospace',
+                                'font-size': 10,
+                                'width': 2,
+                                'label': 'data(name)'
+                            }
+                        },
+                        {
+                            selector: 'edge',
+                            style: {
+                                'curve-style': 'bezier',
+                                'target-arrow-shape': 'triangle',
+                                'target-arrow-color': '#999',
+                                'line-color': '#999',
+                                'font-family': 'monospace',
+                                'font-size': 10,
+                                'width': 2
+                            }
+                        },
+                        {
+                            selector: 'node.cy-expand-collapse-collapsed-node',
+                            style: {
+                                'background-color': '#ADD8E6',
+                                'shape': 'roundrectangle',
+                                'label': 'data(name)',
+                                'width': 'label',
+                                'height': 'label',
+                                'text-valign': 'center',
+                                'text-halign': 'center',
+                                'text-wrap': 'wrap',
+                                'border-width': 2,
+                                'border-color': '#999'
+                            }
+                        },
+                        {
+                            selector: 'node:parent',
+                            style: { 'label': '' }
+                        }
+                    ]
+                });
+
+                cy.ready(() => {
+                    const layout = cy.layout({
+                        name: 'dagre',
+                        rankDir: 'TB',
+                        nodeSep: 75,
+                        edgeSep: 15,
+                        rankSep: 100,
+                        ranker: 'network-simplex',
+                        minLen: 1,
+                        animate: false,
+                        spacingFactor: 1.2,
+                        avoidOverlap: true,
+                        padding: 10
+                    });
+
+                    layout.on('layoutstop', () => {
+                        const bb = cy.elements().boundingBox();
+                        cy.zoom(1.5);
+                        cy.pan({ x: bb.w / 2, y: -bb.y1 + 200 });
+
+                        cy.undoRedo({});
+                        cy.nodes('node:parent').forEach(parent => {
+                            const label = parent.data('name') || '(group)';
+                            parent.data('collapsedLabel', label);
+                        });
+
+                        const expandCollapseApi = cy.expandCollapse({
+                            layoutBy: { name: 'dagre', rankDir: 'TB' },
+                            animate: false,
+                            cueEnabled: false
+                        });
+
+                        function getAllDescendants(node) {
+                            const descendants = [];
+
+                            function collect(id) {
+                                const children = cy.nodes(`[parent = "${id}"]`);
+                                for (const child of children) {
+                                    descendants.push(child);
+                                    collect(child.id()); // recursive
+                                }
+                            }
+
+                            collect(node.id());
+                            return descendants;
+                        }
+
+                        // Store collapsed descendants before collapsing
+                        async function expandAllDescendantsRecursive(node, api) {
+                            const toExpand = getAllDescendants(node)
+                                .filter(n => n.hasClass('cy-expand-collapse-collapsed-node'));
+                            collapsedState.set(node.id(), toExpand);
+
+                            for (const collapsed of toExpand) {
+                                try {
+                                    await api.expand(collapsed);
+                                } catch (e) {
+                                    console.warn('Expansion error on', collapsed, e);
+                                }
+                            }
+                        }
+
+                        // Click-to-toggle collapse/expand
+                        cy.on('tap', 'node', async (e) => {
+                            const node = e.target;
+                            if (!node.isParent() && !node.hasClass('cy-expand-collapse-collapsed-node')) return;
+
+                            try {
+                                if (expandCollapseApi.expandableNodes([node]).length > 0) {
+                                    // Restore previous collapsed children if stored
+                                    const collapsedChildren = collapsedState.get(node.id());
+                                    console.log("collapsed children ", collapsedChildren);
+                                    expandCollapseApi.expand(node);
+                                    if (collapsedChildren) {
+                                        for (const child of collapsedChildren) {
+                                            if (child.nonempty() && expandCollapseApi.collapsibleNodes([child]).length > 0) {
+                                                expandCollapseApi.collapse(child);
+                                            }
+                                        }
+                                    }
+                                } else if (expandCollapseApi.collapsibleNodes([node]).length > 0) {
+                                    await expandAllDescendantsRecursive(node, expandCollapseApi); // FULLY expand first
+                                    expandCollapseApi.collapse(node);
+                                }
+                            } catch (err) {
+                                console.warn('Expand/collapse error:', err);
+                            }
+                        });
+                    });
+
+                    layout.run();
+                });
+            });
+    </script>
+</body>
+
+</html>

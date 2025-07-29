@@ -1,0 +1,230 @@
+{
+    "elements": [
+        {
+            "data": {
+                "id": "34",
+                "name": "sub vcl_recv",
+                "parent": "33",
+                "compound": false,
+                "type": "start"
+            }
+        },
+        {
+            "data": {
+                "id": "33",
+                "name": "sub vcl_recv",
+                "compound": true,
+                "type": "parent"
+            }
+        },
+        {
+            "data": {
+                "id": "35",
+                "name": "if (req.restarts == 0) [...] ",
+                "compound": true,
+                "type": "parent"
+            }
+        },
+        {
+            "data": {
+                "id": "36",
+                "name": "if (req.restarts == 0)",
+                "parent": "35",
+                "compound": false,
+                "type": "conditional"
+            }
+        },
+        {
+            "data": {
+                "id": "37",
+                "name": "if (fastly.ff.visits_this_service == 0) [...] ",
+                "parent": "35",
+                "compound": true,
+                "type": "parent"
+            }
+        },
+        {
+            "data": {
+                "id": "38",
+                "name": "if (fastly.ff.visits_this_service == 0)",
+                "parent": "37",
+                "compound": false,
+                "type": "conditional"
+            }
+        },
+        {
+            "data": {
+                "id": "39",
+                "name": "if (!(std.strlen(req.http.x-sigsci-force-inspection) > 0 || randombool(std.atoi(table.lookup(Edge_Security, \"Enabled\", \"0\")), 100))) [...] ",
+                "parent": "37",
+                "compound": true,
+                "type": "parent"
+            }
+        },
+        {
+            "data": {
+                "id": "40",
+                "name": "if (!(std.strlen(req.http.x-sigsci-force-inspection) > 0 || randombool(std.atoi(table.lookup(Edge_Security, \"Enabled\", \"0\")), 100)))",
+                "parent": "39",
+                "compound": false,
+                "type": "conditional"
+            }
+        },
+        {
+            "data": {
+                "id": "41",
+                "name": "set req.http.x-sigsci-no-inspection = \"disabled\";",
+                "parent": "39",
+                "compound": false
+            }
+        },
+        {
+            "data": {
+                "id": "42",
+                "name": "if (table.contains(enabled_products, \"origin_inspector\")) [...] ",
+                "parent": "39",
+                "compound": true,
+                "type": "parent"
+            }
+        },
+        {
+            "data": {
+                "id": "43",
+                "name": "if (table.contains(enabled_products, \"origin_inspector\"))",
+                "parent": "42",
+                "compound": false,
+                "type": "conditional"
+            }
+        },
+        {
+            "data": {
+                "id": "44",
+                "name": "set req.http.fastly-origin-inspector = \"true\";",
+                "parent": "42",
+                "compound": false
+            }
+        },
+        {
+            "data": {
+                "id": "45",
+                "name": "unset req.http.fastly-origin-inspector;",
+                "parent": "42",
+                "compound": false
+            }
+        },
+        {
+            "data": {
+                "id": "46",
+                "name": "unset req.http.x-sigsci-no-inspection;\nunset req.http.x-sigsci-skip-inspection-once;\n\nset req.http.fastly-client-ip = client.ip;\n\nset req.http.x-fastly-ngwaf:protocol = req.proto;\nset req.http.x-fastly-ngwaf:requestid = fastly_info.request_id;\nset req.http.x-fastly-ngwaf:scheme = req.protocol;\nset req.http.x-fastly-ngwaf:tlscipher = tls.client.cipher;\nset req.http.x-fastly-ngwaf:tlsprotocol = tls.client.protocol;\nset req.http.x-fastly-ngwaf:bot-data = {\"{\"}\n{\"\"c\":\"\"} tls.client.ciphers_list {\"\",\"}\n{\"\"e\":\"\"} tls.client.tlsexts_list {\"\",\"}\n{\"\"h\":\"\"} fastly_info.h2.fingerprint {\"\",\"}\n{\"\"j\":\"\"} tls.client.ja3_md5 {\"\"\"}\n{\"}\"};",
+                "parent": "39",
+                "compound": false
+            }
+        },
+        {
+            "data": {
+                "id": "47",
+                "name": "unset req.http.x-fastly-ngwaf:ip-address;",
+                "parent": "35",
+                "compound": false
+            }
+        },
+        {
+            "data": {
+                "id": "48",
+                "name": "end",
+                "compound": false,
+                "type": "terminal"
+            }
+        },
+        {
+            "data": {
+                "source": "40",
+                "target": "41",
+                "name": "true"
+            }
+        },
+        {
+            "data": {
+                "source": "43",
+                "target": "44",
+                "name": "true"
+            }
+        },
+        {
+            "data": {
+                "source": "43",
+                "target": "45",
+                "name": "false"
+            }
+        },
+        {
+            "data": {
+                "source": "44",
+                "target": "46"
+            }
+        },
+        {
+            "data": {
+                "source": "45",
+                "target": "46"
+            }
+        },
+        {
+            "data": {
+                "source": "40",
+                "target": "43",
+                "name": "false"
+            }
+        },
+        {
+            "data": {
+                "source": "38",
+                "target": "40",
+                "name": "true"
+            }
+        },
+        {
+            "data": {
+                "source": "41",
+                "target": "47"
+            }
+        },
+        {
+            "data": {
+                "source": "46",
+                "target": "47"
+            }
+        },
+        {
+            "data": {
+                "source": "38",
+                "target": "47"
+            }
+        },
+        {
+            "data": {
+                "source": "36",
+                "target": "38",
+                "name": "true"
+            }
+        },
+        {
+            "data": {
+                "source": "34",
+                "target": "36"
+            }
+        },
+        {
+            "data": {
+                "source": "47",
+                "target": "48"
+            }
+        },
+        {
+            "data": {
+                "source": "36",
+                "target": "48"
+            }
+        }
+    ]
+}
