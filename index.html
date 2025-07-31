@@ -46,8 +46,8 @@
 <body style="margin:0; height:100vh; display:flex; flex-direction:column;">
     <!-- Top input bar -->
     <div style="background:#eee; border-bottom:1px solid #ccc; padding:10px;">
-        Sid: <input type="text" id="sidInput" placeholder="">
-        Version: <input type="text" id="versionInput" placeholder="">
+        Sid: <input type="text" id="sidInput" placeholder="34s0wI9fTjkamT4QdIv1x3">
+        Version: <input type="text" id="versionInput" placeholder="107">
         <button id="loadButton">Load</button>
     </div>
 
@@ -83,7 +83,6 @@
         }
 
         function loadFunctionGraph(fnName) {
-            console.log("loadFunctionGraph");
             const { nodes, edges } = functionGraphs.get(fnName);
 
             if (cy) {
@@ -354,6 +353,10 @@
                 .then(data => {
                     functionGraphs = groupElementsByFunction(data.elements);
                     renderSidebar();
+                    if (cy) {
+                        cy.destroy();
+                    }
+
                 })
                 .catch(err => {
                     console.error("Fetch error:", err);
