@@ -49,6 +49,9 @@
         Sid: <input type="text" id="sidInput" placeholder="34s0wI9fTjkamT4QdIv1x3">
         Version: <input type="text" id="versionInput" placeholder="107">
         <button id="loadButton">Load</button>
+        <button id="startDebugging" onclick="startDebugging()">Start Step</button>
+        <div id="step-controls">
+        </div>
     </div>
 
     <!-- Main content: sidebar + Cytoscape -->
@@ -56,17 +59,124 @@
         <div id="sidebar"
             style="width:200px; overflow-y:auto; border-right:1px solid #ccc; padding:10px; background:#f7f7f7;"></div>
         <div id="cy" style="flex:1;"></div>
+        <div id="trace-panel"
+            style="width:200px; overflow-y:auto; border-right:1px solid #ccc; padding 10px; backgtround: #f7f7f7;">
+        </div>
     </div>
     <script>
         const searchParams = new URLSearchParams(window.location.search);
-        const gSecret = searchParams.get('secret');
+        const secret = searchParams.get('secret');
 
-        let functionGraphs = new Map();
         let cy;
+        let expandCollapseApi;
+        let functionGraphs = new Map();
         let collapsedState = new Map();
+
+        let executionPointer = null; // Current node
+        let conditionTrace = [];     // Array of { nodeId, branchTaken }
 
         function findNameFromId(id) {
             return functionGraphs.get(id).name;
+        }
+
+        async function startDebugging() {
+            await expandAllCollapsedNodes(expandCollapseApi);
+            const startNode = cy.nodes().filter(n => n.data('type') === 'start')[0];
+            if (!startNode) return alert("No start node found");
+
+            executionPointer = startNode;
+            showStepButton();
+            conditionTrace = [];
+            highlightCurrent();
+        }
+
+        function highlightCurrent() {
+            cy.elements().removeClass('highlighted');
+            if (executionPointer) {
+                executionPointer.addClass('highlighted');
+            }
+        }
+
+        function updateConditionSidebar() {
+            const sidebar = document.getElementById('trace-panel');
+            const list = conditionTrace.map(cond => {
+                const node = cy.getElementById(cond.nodeId);
+                return `${node.data('name')} → ${cond.branchTaken}`;
+            }).join('<br>');
+
+            const container = document.createElement('div');
+            container.innerHTML = `<h4>Trace</h4>${list}`;
+            sidebar.appendChild(container);
+        }
+
+        function showStepButton() {
+            const container = document.getElementById('step-controls');
+            container.innerHTML = ''; // Clear
+            const btn = document.createElement('button');
+            btn.textContent = `Step`;
+            btn.onclick = () => {
+                stepForward();
+            }
+            container.appendChild(btn);
+        }
+
+        function showBranchButtons(edges) {
+            const container = document.getElementById('step-controls');
+            container.innerHTML = ''; // Clear
+
+            edges.forEach(edge => {
+                const btn = document.createElement('button');
+                btn.textContent = `Choose: ${edge.data('name') || 'default'}`;
+                btn.onclick = () => {
+                    const targetId = edge.target().id();
+                    conditionTrace.push({
+                        nodeId: executionPointer.id(),
+                        branchTaken: edge.data('name')
+                    });
+
+                    highlightEdge(edge);
+                    executionPointer = edge.target();
+                    if (executionPointer.data('type') === 'conditional') {
+                        const outgoing = executionPointer.outgoers('edge');
+                        showBranchButtons(outgoing);
+                    } else {
+                        showStepButton();
+                    }
+                    highlightCurrent();
+                    updateConditionSidebar();
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        function stepForward() {
+            if (!executionPointer) return;
+
+            const outgoing = executionPointer.outgoers('edge');
+            if (executionPointer.data('type') === 'conditional') {
+                // handled in other buttons
+            } else {
+                // Normal node
+                const next = outgoing[0]?.target();
+                if (next) {
+                    highlightEdge(outgoing[0]);
+                    executionPointer = next;
+                    if (executionPointer.data('type') === 'conditional') {
+                        const outgoing = executionPointer.outgoers('edge');
+                        showBranchButtons(outgoing);
+                    } else {
+                        showStepButton();
+                    }
+                    highlightCurrent();
+                } else {
+                    alert("Execution ended");
+                    executionPointer = null;
+                }
+            }
+        }
+
+        function highlightEdge(edge) {
+            edge.addClass('traced');
         }
 
         function renderSidebar() {
@@ -167,6 +277,23 @@
                     {
                         selector: 'node:parent',
                         style: { 'label': '' }
+                    },
+                    {
+                        selector: '.traced',
+                        style: {
+                            'line-color': '#42A5F5',
+                            'target-arrow-color': '#42A5F5',
+                            'width': 4
+                        }
+                    },
+                    {
+
+                        selector: '.highlighted',
+                        style: {
+                            'border-width': 4,
+                            'border-color': '#FFA726',
+                            'background-color': '#FFF3E0'
+                        }
                     }
                 ]
             });
@@ -197,7 +324,7 @@
                         parent.data('collapsedLabel', label);
                     });
 
-                    const expandCollapseApi = cy.expandCollapse({
+                    expandCollapseApi = cy.expandCollapse({
                         layoutBy: { name: 'dagre', rankDir: 'TB' },
                         animate: false,
                         cueEnabled: false
@@ -282,6 +409,27 @@
             });
         }
 
+
+        async function expandAllCollapsedNodes(api) {
+            let expanded = false;
+
+            const collapsedNodes = cy.nodes('.cy-expand-collapse-collapsed-node');
+
+            for (const node of collapsedNodes) {
+                try {
+                    await api.expand(node);
+                    expanded = true;
+                } catch (err) {
+                    console.warn('Could not expand node:', node.id(), err);
+                }
+            }
+
+            // If any were expanded, call again to catch children
+            if (expanded) {
+                await expandAllCollapsedNodes(api);
+            }
+        }
+
         function estimateWidth(name) {
             const lines = name.split('\n').length;
             const longestLine = name.split('\n').reduce((a, b) => a.length > b.length ? a : b, '').length;
@@ -339,13 +487,13 @@
             let headers = {
                 "sid": sid,
                 "version": version,
-                "fastly_key": gSecret
+                "fastly_key": secret
             };
 
-            //            fetch('./elements.json')
-            fetch("https://vcl-debugger.edgecompute.app/get_flow", {
-                headers: headers
-            })
+            fetch('./elements.json')
+                // fetch("https://vcl-debugger.edgecompute.app/get_flow", {
+                //     headers: headers
+                // })
                 .then(res => {
                     if (!res.ok) throw new Error("Failed to fetch elements.json");
                     return res.json();
