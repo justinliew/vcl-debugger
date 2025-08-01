@@ -69,6 +69,7 @@
         Version: <input type="text" id="versionInput" placeholder="107">
         <button id="loadButton">Load</button>
         <button id="startDebugging" onclick="startDebugging()">Start Step</button>
+        <input type="checkbox" id="pickMode">Picker Mode</button>
         <div id="step-controls"></div>
     </div>
 
@@ -148,6 +149,62 @@
                     easing: 'ease-in-out'
                 });
             }
+        }
+
+        function displayAllConditionPaths(paths) {
+            const panel = document.getElementById('trace-panel');
+            panel.innerHTML = '<h3>Paths to Node</h3>';
+
+            paths.forEach((path, index) => {
+                const div = document.createElement('div');
+                div.style.marginBottom = '12px';
+                div.innerHTML = `<strong>Path ${index + 1}</strong>`;
+                const ul = document.createElement('ul');
+
+                path.forEach(({ condition, decision }) => {
+                    const li = document.createElement('li');
+                    li.textContent = condition;
+                    li.style.background = decision === 'true' ? '#d8f5dd' : '#fbe3e3';
+                    li.style.padding = '4px';
+                    li.style.marginBottom = '3px';
+                    ul.appendChild(li);
+                });
+
+                div.appendChild(ul);
+                panel.appendChild(div);
+            });
+        }
+
+        function findAllConditionPathsTo(node) {
+            const paths = [];
+
+            function dfs(currentNode, path) {
+                const incomingEdges = currentNode.incomers('edge');
+                if (incomingEdges.length === 0) {
+                    paths.push([...path].reverse()); // Reached start, save reversed path
+                    return;
+                }
+
+                incomingEdges.forEach(edge => {
+                    const source = edge.source();
+
+                    // If edge is from a conditional node, record the decision
+                    if (source.data('type') === 'conditional') {
+                        const condition = extractCondition(source.data('name'));
+                        const decision = edge.data('name');
+                        path.push({ condition, decision });
+                    }
+
+                    dfs(source, path);
+
+                    // Undo push for next iteration (backtrack)
+                    if (source.data('type') === 'conditional') path.pop();
+                });
+            }
+
+            dfs(node, []);
+            console.log(paths);
+            return paths;
         }
 
         function clearConditionSidebar() {
@@ -478,6 +535,11 @@
                     cy.on('tap', 'node', async (e) => {
                         const node = e.target;
                         handle_expand_collapse(node);
+
+                        if (document.getElementById('pickMode').checked) {
+                            const paths = findAllConditionPathsTo(node);
+                            displayAllConditionPaths(paths);
+                        }
                     });
                 });
 
@@ -567,10 +629,10 @@
                 "fastly_key": secret
             };
 
-            //            fetch('./elements.json')
-            fetch("https://vcl-debugger.edgecompute.app/get_flow", {
-                headers: headers
-            })
+            fetch('./elements.json')
+                // fetch("https://vcl-debugger.edgecompute.app/get_flow", {
+                //     headers: headers
+                // })
                 .then(res => {
                     if (!res.ok) throw new Error("Failed to fetch elements.json");
                     return res.json();
