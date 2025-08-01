@@ -152,13 +152,11 @@
         }
 
         function displayAllConditionPaths(paths) {
-            const panel = document.getElementById('trace-panel');
-            panel.innerHTML = '<h3>Paths to Node</h3>';
-
+            clearConditionSidebar();
+            const conditionList = document.getElementById("condition-list");
             paths.forEach((path, index) => {
-                const div = document.createElement('div');
-                div.style.marginBottom = '12px';
-                div.innerHTML = `<strong>Path ${index + 1}</strong>`;
+                const li = document.createElement("li");
+                li.textContent = `<strong>Path ${index + 1}</strong>`;
                 const ul = document.createElement('ul');
 
                 path.forEach(({ condition, decision }) => {
@@ -170,8 +168,7 @@
                     ul.appendChild(li);
                 });
 
-                div.appendChild(ul);
-                panel.appendChild(div);
+                conditionList.appendChild(ul);
             });
         }
 
