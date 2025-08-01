@@ -69,7 +69,7 @@
         Version: <input type="text" id="versionInput" placeholder="107">
         <button id="loadButton">Load</button>
         <button id="startDebugging" onclick="startDebugging()">Start Step</button>
-        <input type="checkbox" id="pickMode">Picker Mode</button>
+        <input type="checkbox" id="pickMode" onclick="pickMode()">Picker Mode</button>
         <div id="step-controls"></div>
     </div>
 
@@ -124,6 +124,12 @@
             return functionGraphs.get(id).name;
         }
 
+        async function pickMode() {
+            if (document.getElementById('pickMode').checked) {
+                await expandAllCollapsedNodes(expandCollapseApi);
+            }
+        }
+
         async function startDebugging() {
             clearConditionSidebar();
             await expandAllCollapsedNodes(expandCollapseApi);
@@ -155,9 +161,8 @@
             clearConditionSidebar();
             const conditionList = document.getElementById("condition-list");
             paths.forEach((path, index) => {
-                const li = document.createElement("li");
-                li.textContent = `<strong>Path ${index + 1}</strong>`;
                 const ul = document.createElement('ul');
+                ul.innerHTML = `<strong>Path ${index + 1}</strong>`;
 
                 path.forEach(({ condition, decision }) => {
                     const li = document.createElement('li');
