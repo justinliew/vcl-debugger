@@ -34,34 +34,78 @@
             background: #eee;
         }
 
-        #cy {
-            width: 80%;
-            height: 100%;
-            top: 0;
-            left: 200px;
+        #trace-panel {
+            font-family: monospace;
+            font-size: 10px;
+        }
+
+        .condition-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+
+        .condition-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .condition-list li {
+            background: #eef5ff;
+            padding: 8px 10px;
+            margin-bottom: 6px;
+            border-radius: 4px;
+            word-break: break-word;
         }
     </style>
 </head>
 
 <body style="margin:0; height:100vh; display:flex; flex-direction:column;">
+
     <!-- Top input bar -->
     <div style="background:#eee; border-bottom:1px solid #ccc; padding:10px;">
         Sid: <input type="text" id="sidInput" placeholder="34s0wI9fTjkamT4QdIv1x3">
         Version: <input type="text" id="versionInput" placeholder="107">
         <button id="loadButton">Load</button>
         <button id="startDebugging" onclick="startDebugging()">Start Step</button>
-        <div id="step-controls">
-        </div>
+        <div id="step-controls"></div>
     </div>
 
-    <!-- Main content: sidebar + Cytoscape -->
-    <div style="flex:1; display:flex; min-height:0;">
-        <div id="sidebar"
-            style="width:200px; overflow-y:auto; border-right:1px solid #ccc; padding:10px; background:#f7f7f7;"></div>
-        <div id="cy" style="flex:1;"></div>
-        <div id="trace-panel"
-            style="width:200px; overflow-y:auto; border-right:1px solid #ccc; padding 10px; backgtround: #f7f7f7;">
+    <!-- Main content layout: Sidebar | Cytoscape | Trace Panel -->
+    <div style="flex:1; display:flex; min-height:0; overflow: hidden;">
+
+        <!-- Left Sidebar -->
+        <div id="sidebar" style="
+        width: 200px;
+        overflow-y: auto;
+        border-right: 1px solid #ccc;
+        padding: 10px;
+        background: #f7f7f7;
+        flex-shrink: 0;
+      "></div>
+
+        <!-- Cytoscape Container -->
+        <div id="cy" style="
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        position: relative;
+      "></div>
+
+        <!-- Right Trace Panel -->
+        <div id="trace-panel" style="
+        width: 300px;
+        overflow-y: auto;
+        border-left: 1px solid #ccc;
+        padding: 10px;
+        background: #f7f7f7;
+        flex-shrink: 0;
+      ">
+            <div class="condition-title">Path Conditions</div>
+            <ul id="condition-list" class="condition-list"></ul>
         </div>
+
     </div>
     <script>
         const searchParams = new URLSearchParams(window.location.search);
@@ -73,13 +117,14 @@
         let collapsedState = new Map();
 
         let executionPointer = null; // Current node
-        let conditionTrace = [];     // Array of { nodeId, branchTaken }
+        let conditionTrace = [];     // Array of { nodeId, branchTrue }
 
         function findNameFromId(id) {
             return functionGraphs.get(id).name;
         }
 
         async function startDebugging() {
+            clearConditionSidebar();
             await expandAllCollapsedNodes(expandCollapseApi);
             const startNode = cy.nodes().filter(n => n.data('type') === 'start')[0];
             if (!startNode) return alert("No start node found");
@@ -87,26 +132,56 @@
             executionPointer = startNode;
             showStepButton();
             conditionTrace = [];
-            highlightCurrent();
+            highlightCurrent(false);
         }
 
-        function highlightCurrent() {
+        function highlightCurrent(pan) {
             cy.elements().removeClass('highlighted');
             if (executionPointer) {
                 executionPointer.addClass('highlighted');
             }
+            if (pan) {
+                cy.animate({
+                    center: { eles: executionPointer },
+                    zoom: 1, // or your preferred zoom level
+                    duration: 500,
+                    easing: 'ease-in-out'
+                });
+            }
+        }
+
+        function clearConditionSidebar() {
+            const conditionList = document.getElementById("condition-list");
+            conditionList.innerHTML = "";
+        }
+
+        function extractCondition(expression) {
+            expression = expression.trim();
+
+            if (expression.startsWith("if")) {
+                // Remove "if"
+                expression = expression.slice(2).trim();
+            }
+
+            // Remove surrounding parentheses if present
+            if (expression.startsWith("(") && expression.endsWith(")")) {
+                expression = expression.slice(1, -1).trim();
+            }
+
+            return expression;
         }
 
         function updateConditionSidebar() {
-            const sidebar = document.getElementById('trace-panel');
-            const list = conditionTrace.map(cond => {
-                const node = cy.getElementById(cond.nodeId);
-                return `${node.data('name')} → ${cond.branchTaken}`;
-            }).join('<br>');
+            const cond = conditionTrace[conditionTrace.length - 1];
+            const node = cy.getElementById(cond.nodeId);
+            const text = extractCondition(`${node.data('name')}`);
+            const conditionList = document.getElementById("condition-list");
+            const li = document.createElement("li");
+            li.textContent = text;
+            li.style.backgroundColor = cond.branchTrue ? "#d4edda" : "#f8d7da"; // Green for true, Red for false
 
-            const container = document.createElement('div');
-            container.innerHTML = `<h4>Trace</h4>${list}`;
-            sidebar.appendChild(container);
+            conditionList.appendChild(li);
+
         }
 
         function showStepButton() {
@@ -129,9 +204,10 @@
                 btn.textContent = `Choose: ${edge.data('name') || 'default'}`;
                 btn.onclick = () => {
                     const targetId = edge.target().id();
+                    const branchTrue = edge.data('name') === 'true';
                     conditionTrace.push({
                         nodeId: executionPointer.id(),
-                        branchTaken: edge.data('name')
+                        branchTrue: branchTrue
                     });
 
                     highlightEdge(edge);
@@ -142,7 +218,7 @@
                     } else {
                         showStepButton();
                     }
-                    highlightCurrent();
+                    highlightCurrent(true);
                     updateConditionSidebar();
                 };
                 container.appendChild(btn);
@@ -167,7 +243,7 @@
                     } else {
                         showStepButton();
                     }
-                    highlightCurrent();
+                    highlightCurrent(true);
                 } else {
                     alert("Execution ended");
                     executionPointer = null;
@@ -476,6 +552,7 @@
         }
 
         document.getElementById('loadButton').addEventListener('click', () => {
+            clearConditionSidebar();
             const sid = encodeURIComponent(document.getElementById('sidInput').value);
             const version = encodeURIComponent(document.getElementById('versionInput').value);
 
