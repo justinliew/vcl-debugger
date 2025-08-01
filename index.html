@@ -567,10 +567,10 @@
                 "fastly_key": secret
             };
 
-            fetch('./elements.json')
-                // fetch("https://vcl-debugger.edgecompute.app/get_flow", {
-                //     headers: headers
-                // })
+            //            fetch('./elements.json')
+            fetch("https://vcl-debugger.edgecompute.app/get_flow", {
+                headers: headers
+            })
                 .then(res => {
                     if (!res.ok) throw new Error("Failed to fetch elements.json");
                     return res.json();
