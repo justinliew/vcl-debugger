@@ -122,6 +122,26 @@
 
         let previouslyExpandedParents = [];
 
+        // const layoutParams = {
+        //     name: 'dagre',
+        //     rankDir: 'TB',
+        //     nodeSep: 75,
+        //     edgeSep: 15,
+        //     rankSep: 100,
+        //     ranker: 'network-simplex',
+        //     minLen: 2,
+        //     animate: false,
+        //     spacingFactor: 1.2,
+        //     avoidOverlap: true,
+        //     padding: 10,
+        //     fit: false
+        // };
+        const layoutParams = {
+            name: 'dagre',
+            rankDir: 'TB',
+            fit: false
+        };
+
         function findNameFromId(id) {
             return functionGraphs.get(id).name;
         }
@@ -184,18 +204,9 @@
 
         async function handle_expand_collapse(node) {
             try {
-                console.log("handle_expand_collapse ", expandCollapseApi.expandableNodes([node]).length, expandCollapseApi.collapsibleNodes([node]).length)
                 if (expandCollapseApi.expandableNodes([node]).length > 0) {
-                    // Restore previous collapsed children if stored
-                    const collapsedChildren = collapsedState.get(node.id());
                     expandCollapseApi.expand(node);
-                    if (collapsedChildren) {
-                        for (const child of collapsedChildren) {
-                            if (child.nonempty() && expandCollapseApi.collapsibleNodes([child]).length > 0) {
-                                expandCollapseApi.collapse(child);
-                            }
-                        }
-                    }
+
                 } else if (expandCollapseApi.collapsibleNodes([node]).length > 0) {
                     await expandAllDescendantsRecursive(node, expandCollapseApi); // FULLY expand first
                     expandCollapseApi.collapse(node);
@@ -211,12 +222,14 @@
                 executionPointer.addClass('highlighted');
             }
             if (pan) {
-                cy.animate({
-                    center: { eles: executionPointer },
-                    zoom: 1, // or your preferred zoom level
-                    duration: 500,
-                    easing: 'ease-in-out'
-                });
+                setTimeout(() => {
+                    cy.animate({
+                        center: { eles: executionPointer },
+                        zoom: 1, // or your preferred zoom level
+                        duration: 500,
+                        easing: 'ease-in-out'
+                    });
+                }, 100);
             }
         }
 
@@ -268,7 +281,6 @@
             }
 
             dfs(node, []);
-            console.log(paths);
             return paths;
         }
 
@@ -359,8 +371,7 @@
             const nextParent = nextNode.parent();
             const outgoing = executionPointer.outgoers('edge');
 
-            // Expand the immediate parent if it’s collapsed
-            if (nextNode.data('parent') && nextNode.data('collapsedChildren')) {
+            if (nextNode.data('compound')) {
                 handle_expand_collapse(nextNode);
                 executionPointer = nextNode.children().filter(child => {
                     return edge.target().id() === child.id();
@@ -376,7 +387,8 @@
                 highlightCurrent(true);
                 highlightEdge(edge);
                 previouslyExpandedParents.push(nextNode.id());
-            } else if (thisParent.id() !== nextParent.id()) {
+            }
+            else if (thisParent.id() !== nextParent.id()) {
                 handle_expand_collapse(thisParent);
                 executionPointer = nextNode;
                 if (executionPointer.data('type') === 'conditional') {
@@ -452,7 +464,6 @@
                         }
                     },
                     { selector: 'node[type = "sub"]', style: { 'background-color': '#e0e0e0' } },
-                    { selector: 'node[type = "parent"]', style: { 'background-color': '#e0e0e0' } },
                     { selector: 'node[type = "conditional"]', style: { 'background-color': '#FFDD57' } },
                     { selector: 'node[type = "terminal"]', style: { 'background-color': '#EF5350' } },
                     {
@@ -499,9 +510,14 @@
                             'border-color': '#eee'
                         }
                     },
+                    //                    { selector: 'node[type = "parent"]', style: { 'background-color': '#e0e0e0' } },
                     {
                         selector: 'node:parent',
-                        style: { 'label': '' }
+                        style: {
+                            'label': '',
+                            'background-color': '#e0e0e0',
+                            'width': 400
+                        }
                     },
                     {
                         selector: '.traced',
@@ -525,9 +541,10 @@
 
             cy.ready(() => {
                 expandCollapseApi = cy.expandCollapse({
-                    layoutBy: { name: 'dagre', rankDir: 'TB' },
+                    layoutBy: layoutParams,
                     animate: false,
-                    cueEnabled: false
+                    cueEnabled: false,
+                    fit: false
                 });
                 cy.autoungrabify(true);
                 const allParents = cy.nodes().filter(n => n.isParent());
@@ -549,15 +566,7 @@
                 const layout = cy.layout({
                     name: 'dagre',
                     rankDir: 'TB',
-                    nodeSep: 75,
-                    edgeSep: 15,
-                    rankSep: 100,
-                    ranker: 'network-simplex',
-                    minLen: 1,
-                    animate: false,
-                    spacingFactor: 1.2,
-                    avoidOverlap: true,
-                    padding: 10
+                    fit: true
                 });
 
                 layout.on('layoutstop', () => {
@@ -606,6 +615,16 @@
             if (expanded) {
                 await expandAllCollapsedNodes(api);
             }
+        }
+
+        function wrapRegexPipes(label) {
+            // we want to wrap long regexes
+            if (label.includes('*|.*')) {
+                // Keep outer parentheses and split inner content by |
+                const parts = label.split('|');
+                return parts.join('\n|\n');
+            }
+            return label;
         }
 
         function estimateWidth(name) {
