@@ -69,7 +69,7 @@
         Version: <input type="text" id="versionInput" placeholder="107">
         <button id="loadButton">Load</button>
         <button id="startDebugging" onclick="startDebugging()">Start Step</button>
-        <input type="checkbox" id="pickMode" onclick="pickMode()">Picker Mode</button>
+        <input type="checkbox" id="pickMode">Picker Mode</button>
         <div id="step-controls"></div>
     </div>
 
@@ -122,6 +122,9 @@
 
         let previouslyExpandedParents = [];
 
+        let reverseAdjacency = new Map();
+        let parentMap = new Map();
+
         // const layoutParams = {
         //     name: 'dagre',
         //     rankDir: 'TB',
@@ -144,13 +147,6 @@
 
         function findNameFromId(id) {
             return functionGraphs.get(id).name;
-        }
-
-        async function pickMode() {
-            if (document.getElementById('pickMode').checked) {
-                // TODO this doesn't work
-                //                await expandAllCollapsedNodes(expandCollapseApi);
-            }
         }
 
         async function startDebugging() {
@@ -233,55 +229,91 @@
             }
         }
 
+        function revealPath(pathObj, cy, expandCollapseApi) {
+            const { nodes, edges, expand } = pathObj;
+
+            // Expand all required parent compound nodes
+            expand.forEach(pid => {
+                const node = cy.getElementById(pid);
+                if (node.nonempty()) {
+                    expandCollapseApi.expand(node);
+                }
+            });
+
+            // Highlight the path
+            cy.elements().removeClass('highlighted');
+            cy.elements().removeClass('traced');
+            nodes.forEach(node => {
+                cy.getElementById(node.source).addClass('highlighted');
+            });
+
+            // Highlight edges
+            edges.forEach(eid => {
+                cy.getElementById(eid).addClass('traced');
+            });
+        }
+
         function displayAllConditionPaths(paths) {
             clearConditionSidebar();
             const conditionList = document.getElementById("condition-list");
             paths.forEach((path, index) => {
                 const ul = document.createElement('ul');
-                ul.innerHTML = `<strong>Path ${index + 1}</strong>`;
+                const btn = document.createElement("button");
+                btn.textContent = `Path ${index + 1}`;
+                btn.onclick = () => revealPath(path, cy, expandCollapseApi);
+                conditionList.appendChild(btn);
 
-                path.forEach(({ condition, decision }) => {
-                    const li = document.createElement('li');
-                    li.textContent = condition;
-                    li.style.background = decision === 'true' ? '#d8f5dd' : '#fbe3e3';
-                    li.style.padding = '4px';
-                    li.style.marginBottom = '3px';
-                    ul.appendChild(li);
+                path.nodes.forEach(({ source, type, cond, code }) => {
+
+                    if (type === 'conditional') {
+                        const li = document.createElement('li');
+                        li.textContent = code;
+                        li.style.background = cond === 'true' ? '#d8f5dd' : '#fbe3e3';
+                        li.style.padding = '4px';
+                        li.style.marginBottom = '3px';
+                        ul.appendChild(li);
+                    }
                 });
 
                 conditionList.appendChild(ul);
             });
         }
 
-        function findAllConditionPathsTo(node) {
-            const paths = [];
+        function findAllPathsToNode(targetId) {
+            const allPaths = [];
 
-            function dfs(currentNode, path) {
-                const incomingEdges = currentNode.incomers('edge');
-                if (incomingEdges.length === 0) {
-                    paths.push([...path].reverse()); // Reached start, save reversed path
-                    return;
+            function dfs(currentNode, path, pathEdges, expandSet) {
+                path.push(currentNode);
+
+                // Track parents to expand for this node
+                let p = parentMap[currentNode.source];
+                while (p) {
+                    expandSet.add(p);
+                    p = parentMap[p]; // climb up parent chain
                 }
 
-                incomingEdges.forEach(edge => {
-                    const source = edge.source();
-
-                    // If edge is from a conditional node, record the decision
-                    if (source.data('type') === 'conditional') {
-                        const condition = extractCondition(source.data('name'));
-                        const decision = edge.data('name');
-                        path.push({ condition, decision });
+                const parents = reverseAdjacency[currentNode.source];
+                if (parents.length === 0) {
+                    // Reached a root — store reversed path (root → target)
+                    allPaths.push({
+                        nodes: [...path].reverse(),
+                        edges: [...pathEdges].reverse(),
+                        expand: Array.from(expandSet) // parent compound nodes to expand
+                    });
+                } else {
+                    for (const p of parents) {
+                        pathEdges.push(p.edge);
+                        dfs(p, path, pathEdges, new Set(expandSet));
+                        pathEdges.pop();
                     }
+                }
 
-                    dfs(source, path);
-
-                    // Undo push for next iteration (backtrack)
-                    if (source.data('type') === 'conditional') path.pop();
-                });
+                path.pop();
             }
 
-            dfs(node, []);
-            return paths;
+            const targetObj = { source: targetId, cond: "", code: "", type: "" };
+            dfs(targetObj, [], [], new Set());
+            return allPaths;
         }
 
         function clearConditionSidebar() {
@@ -429,9 +461,30 @@
             }
         }
 
+        function buildDataStructs(nodes, edges) {
+            let nodemap = new Map();
+
+            nodes.forEach(n => {
+                parentMap[n.data.id] = n.data.parent;
+                nodemap[n.data.id] = n;
+            });
+
+            edges.forEach(e => {
+                const tgt = e.data.target;
+                if (!reverseAdjacency[tgt]) reverseAdjacency[tgt] = [];
+
+                const obj = { source: e.data.source, edge: e.data.id, type: nodemap[e.data.source].data.type, cond: e.data.name, code: nodemap[e.data.source].data.name };
+
+                reverseAdjacency[tgt].push(obj);
+            });
+            nodes.forEach(n => {
+                if (!reverseAdjacency[n.data.id]) reverseAdjacency[n.data.id] = [];
+            });
+        }
+
         function loadFunctionGraph(fnName) {
             const { nodes, edges } = functionGraphs.get(fnName);
-
+            buildDataStructs(nodes, edges);
             if (cy) {
                 cy.destroy();
             }
@@ -586,7 +639,7 @@
                         handle_expand_collapse(node);
 
                         if (document.getElementById('pickMode').checked) {
-                            const paths = findAllConditionPathsTo(node);
+                            const paths = findAllPathsToNode(node.id());
                             displayAllConditionPaths(paths);
                         }
                     });
@@ -659,7 +712,7 @@
                     graphs.set(fn, { name: el.data?.name || 'Unknown', nodes: [], edges: [] });
                 }
 
-                if (el.type === 'edge') {
+                if (el.data.type === 'edge') {
                     graphs.get(fn).edges.push(el);
                 } else {
                     // Estimate size before pushing the node
