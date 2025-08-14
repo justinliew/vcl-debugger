@@ -68,8 +68,7 @@
         Sid: <input type="text" id="sidInput" placeholder="34s0wI9fTjkamT4QdIv1x3">
         Version: <input type="text" id="versionInput" placeholder="107">
         <button id="loadButton">Load</button>
-        <button id="startDebugging" onclick="startDebugging()">Start Step</button>
-        <input type="checkbox" id="pickMode">Picker Mode</button>
+        <input type="checkbox" id="navtogglebtn" onclick="toggleNavigation()">Navigation</button>
         <div id="step-controls"></div>
     </div>
 
@@ -113,15 +112,20 @@
         const secret = searchParams.get('secret');
 
         let cy;
-        let expandCollapseApi;
         let functionGraphs = new Map();
+
+        // for expand/collapse
+        let expandCollapseApi;
         let collapsedState = new Map();
-
-        let executionPointer = null; // Current node
-        let conditionTrace = [];     // Array of { nodeId, branchTrue }
-
         let previouslyExpandedParents = [];
 
+        // for navigation
+        let executionPointer; // Current node id
+        let isNavigating = false;
+        let navigationHistory = []; // [{ nodeId, parents: [] }]
+        let conditionTrace = [];     // Array of { nodeId, branchTrue }
+
+        // pure data structs for inspection
         let reverseAdjacency = new Map();
         let parentMap = new Map();
 
@@ -149,23 +153,10 @@
             return functionGraphs.get(id).name;
         }
 
-        async function startDebugging() {
-            clearConditionSidebar();
-            const subNode = cy.nodes().filter(n => n.data('type') === 'sub')[0];
+        async function toggleNavigation() {
+            isNavigating = document.getElementById('navtogglebtn').checked;
 
-            if (subNode) {
-                await handle_expand_collapse(subNode);
-            }
-            const startNode = cy.nodes().filter(n => n.data('type') === 'start')[0];
-            if (startNode) {
-                executionPointer = startNode;
-                showStepButton();
-                conditionTrace = [];
-                highlightCurrent(false);
-                previouslyExpandedParents.push(startNode.parent().id());
-            } else {
-                return alert("No start node found");
-            }
+            if (isNavigating) clearConditionSidebar();
         }
 
         function getAllDescendants(node) {
@@ -212,109 +203,22 @@
             }
         }
 
-        function highlightCurrent(pan) {
-            cy.elements().removeClass('highlighted');
-            if (executionPointer) {
-                executionPointer.addClass('highlighted');
-            }
-            if (pan) {
-                setTimeout(() => {
-                    cy.animate({
-                        center: { eles: executionPointer },
-                        zoom: 1, // or your preferred zoom level
-                        duration: 500,
-                        easing: 'ease-in-out'
-                    });
-                }, 100);
-            }
-        }
-
-        function revealPath(pathObj, cy, expandCollapseApi) {
-            const { nodes, edges, expand } = pathObj;
-
-            // Expand all required parent compound nodes
-            expand.forEach(pid => {
-                const node = cy.getElementById(pid);
-                if (node.nonempty()) {
-                    expandCollapseApi.expand(node);
-                }
-            });
-
-            // Highlight the path
-            cy.elements().removeClass('highlighted');
-            cy.elements().removeClass('traced');
-            nodes.forEach(node => {
-                cy.getElementById(node.source).addClass('highlighted');
-            });
-
-            // Highlight edges
-            edges.forEach(eid => {
-                cy.getElementById(eid).addClass('traced');
-            });
-        }
-
-        function displayAllConditionPaths(paths) {
-            clearConditionSidebar();
-            const conditionList = document.getElementById("condition-list");
-            paths.forEach((path, index) => {
-                const ul = document.createElement('ul');
-                const btn = document.createElement("button");
-                btn.textContent = `Path ${index + 1}`;
-                btn.onclick = () => revealPath(path, cy, expandCollapseApi);
-                conditionList.appendChild(btn);
-
-                path.nodes.forEach(({ source, type, cond, code }) => {
-
-                    if (type === 'conditional') {
-                        const li = document.createElement('li');
-                        li.textContent = code;
-                        li.style.background = cond === 'true' ? '#d8f5dd' : '#fbe3e3';
-                        li.style.padding = '4px';
-                        li.style.marginBottom = '3px';
-                        ul.appendChild(li);
-                    }
-                });
-
-                conditionList.appendChild(ul);
-            });
-        }
-
-        function findAllPathsToNode(targetId) {
-            const allPaths = [];
-
-            function dfs(currentNode, path, pathEdges, expandSet) {
-                path.push(currentNode);
-
-                // Track parents to expand for this node
-                let p = parentMap[currentNode.source];
-                while (p) {
-                    expandSet.add(p);
-                    p = parentMap[p]; // climb up parent chain
-                }
-
-                const parents = reverseAdjacency[currentNode.source];
-                if (parents.length === 0) {
-                    // Reached a root — store reversed path (root → target)
-                    allPaths.push({
-                        nodes: [...path].reverse(),
-                        edges: [...pathEdges].reverse(),
-                        expand: Array.from(expandSet) // parent compound nodes to expand
-                    });
-                } else {
-                    for (const p of parents) {
-                        pathEdges.push(p.edge);
-                        dfs(p, path, pathEdges, new Set(expandSet));
-                        pathEdges.pop();
-                    }
-                }
-
-                path.pop();
-            }
-
-            const targetObj = { source: targetId, cond: "", code: "", type: "" };
-            dfs(targetObj, [], [], new Set());
-            return allPaths;
-        }
+        // function highlightCurrent(pan) {
+        //     cy.elements().removeClass('highlighted');
+        //     if (executionPointer) {
+        //         executionPointer.addClass('highlighted');
+        //     }
+        //     if (pan) {
+        //         setTimeout(() => {
+        //             cy.animate({
+        //                 center: { eles: executionPointer },
+        //                 zoom: 1, // or your preferred zoom level
+        //                 duration: 500,
+        //                 easing: 'ease-in-out'
+        //             });
+        //         }, 100);
+        //     }
+        // }
 
         function clearConditionSidebar() {
             const conditionList = document.getElementById("condition-list");
@@ -347,105 +251,62 @@
             li.style.backgroundColor = cond.branchTrue ? "#d4edda" : "#f8d7da"; // Green for true, Red for false
 
             conditionList.appendChild(li);
-
         }
 
-        function showStepButton() {
+        function updateButtons(preds) {
             const container = document.getElementById('step-controls');
-            container.innerHTML = ''; // Clear
-            const btn = document.createElement('button');
-            btn.textContent = `Step`;
-            btn.onclick = () => {
-                stepForward();
-            }
-            container.appendChild(btn);
-        }
+            container.innerHTML = ''; // cleaar
+            preds.forEach(p => {
+                const parentNode = cy.getElementById(p.source);
+                const label = parentNode.data('name' || p.source);
+                const condition = cy.getElementById(p.edge).data('name') || '';
+                console.log("pred ", p.source, p.edge, parentNode.data(), cy.getElementById(p.edge).data(), label, condition);
 
-        function showBranchButtons(edges) {
-            const container = document.getElementById('step-controls');
-            container.innerHTML = ''; // Clear
-
-            edges.forEach(edge => {
                 const btn = document.createElement('button');
-                btn.textContent = `Choose: ${edge.data('name') || 'default'}`;
-                btn.onclick = () => {
-                    const targetId = edge.target().id();
-                    const branchTrue = edge.data('name') === 'true';
-                    conditionTrace.push({
-                        nodeId: executionPointer.id(),
-                        branchTrue: branchTrue
-                    });
-
-                    stepToNode(edge.target(), edge);
-                    updateConditionSidebar();
-                };
+                btn.textContent = `${label} ${condition ? `[${condition}]` : ''}`;
+                btn.onclick = () => stepBackTo(p.source);
                 container.appendChild(btn);
             });
         }
 
-        function stepForward() {
-            if (!executionPointer) return;
+        function getImmediatePredecessors(nodeId) {
+            return reverseAdjacency[nodeId] || [];
+        }
 
-            const outgoing = executionPointer.outgoers('edge');
-            if (executionPointer.data('type') === 'conditional') {
-                // handled in other buttons
-            } else {
-                // Normal node
-                const next = outgoing[0]?.target();
-                stepToNode(next, outgoing[0]);
+        function highlightStep(nodeId) {
+            cy.elements().removeClass('highlighted');
+
+            const preds = getImmediatePredecessors(nodeId);
+            preds.forEach(p => {
+                console.log("highlighting predecessor ", p.source, p.edge);
+                cy.getElementById(p.source).addClass('highlighted');
+                cy.getElementById(p.edge).addClass('highlighted');
+            });
+        }
+
+        function ensureExpanded(nodeId) {
+            let parent = parentMap[nodeId];
+            while (parent) {
+                console.log("checking parent ", parent);
+                // if (cy.getElementById(parent).isParent()) {
+                    expandCollapseApi.expand(cy.getElementById(parent));
+                // }
+                parent = parentMap[parent];
             }
         }
 
-        function stepToNode(nextNode, edge) {
-            if (!nextNode) return;
+        function stepBackTo(nodeId) {
+            executionPointer = nodeId;
 
-            const thisParent = executionPointer.parent();
-            const nextParent = nextNode.parent();
-            const outgoing = executionPointer.outgoers('edge');
-
-            if (nextNode.data('compound')) {
-                handle_expand_collapse(nextNode);
-                executionPointer = nextNode.children().filter(child => {
-                    return edge.target().id() === child.id();
-                }
-                );
-                if (executionPointer.data('type') === 'conditional') {
-                    const outgoing = executionPointer.outgoers('edge');
-                    showBranchButtons(outgoing);
-                } else {
-                    showStepButton();
-                }
-
-                highlightCurrent(true);
-                highlightEdge(edge);
-                previouslyExpandedParents.push(nextNode.id());
+            const preds = getImmediatePredecessors(nodeId);
+            for (pred of preds) {
+                console.log("Pred ", pred);
+                ensureExpanded(pred.source);
             }
-            else if (thisParent.id() !== nextParent.id()) {
-                handle_expand_collapse(thisParent);
-                executionPointer = nextNode;
-                if (executionPointer.data('type') === 'conditional') {
-                    const outgoing = executionPointer.outgoers('edge');
-                    showBranchButtons(outgoing);
-                } else {
-                    showStepButton();
-                }
-                highlightCurrent(true);
-                highlightEdge(edge);
-            } else {
-                executionPointer = nextNode;
-                if (executionPointer.data('type') === 'conditional') {
-                    const outgoing = executionPointer.outgoers('edge');
-                    showBranchButtons(outgoing);
-                } else {
-                    showStepButton();
-                }
-                highlightCurrent(true);
-                highlightEdge(edge);
-            }
-        }
+            highlightStep(nodeId);
+            navigationHistory.push({ nodeId, parents: preds });
 
-        function highlightEdge(edge) {
-            edge.addClass('traced');
+            updateButtons(preds);
         }
 
         function renderSidebar() {
@@ -636,11 +497,12 @@
                     // Click-to-toggle collapse/expand
                     cy.on('tap', 'node', async (e) => {
                         const node = e.target;
-                        handle_expand_collapse(node);
 
-                        if (document.getElementById('pickMode').checked) {
-                            const paths = findAllPathsToNode(node.id());
-                            displayAllConditionPaths(paths);
+                        if (isNavigating) {
+                            navigationHistory = [];
+                            stepBackTo(node.id());
+                        } else {
+                            handle_expand_collapse(node);
                         }
                     });
                 });
@@ -741,10 +603,10 @@
                 "fastly_key": secret
             };
 
-            //            fetch('./elements.json')
-            fetch("https://vcl-debugger.edgecompute.app/get_flow", {
-                headers: headers
-            })
+            fetch('./elements.json')
+                // fetch("https://vcl-debugger.edgecompute.app/get_flow", {
+                //     headers: headers
+                // })
                 .then(res => {
                     if (!res.ok) throw new Error("Failed to fetch elements.json");
                     return res.json();
