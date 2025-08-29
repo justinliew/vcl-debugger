@@ -58,6 +58,63 @@
             border-radius: 4px;
             word-break: break-word;
         }
+
+        /* Modal styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+            text-align: center;
+        }
+
+        .modal-button {
+            display: block;
+            width: 100%;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: #f7f7f7;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: monospace;
+            font-size: 12px;
+            text-align: left;
+            transition: background-color 0.2s;
+        }
+
+        .modal-button:hover {
+            background: #e7e7e7;
+            border-color: #bbb;
+        }
+
+        .modal-button:last-child {
+            margin-bottom: 0;
+        }
     </style>
 </head>
 
@@ -75,36 +132,45 @@
     <!-- Main content layout: Sidebar | Cytoscape | Trace Panel -->
     <div style="flex:1; display:flex; min-height:0; overflow: hidden;">
 
-        <!-- Left Sidebar -->
+        <!-- Function List -->
         <div id="function-list" style="
-        width: 200px;
-        overflow-y: auto;
-        border-right: 1px solid #ccc;
-        padding: 10px;
-        background: #f7f7f7;
-        flex-shrink: 0;
-      "></div>
+            width: 200px;
+            overflow-y: auto;
+            border-right: 1px solid #ccc;
+            padding: 10px;
+            background: #f7f7f7;
+            flex-shrink: 0;
+        "></div>
 
         <!-- Cytoscape Container -->
         <div id="cy" style="
-        flex: 1;
-        min-width: 0;
-        min-height: 0;
-        position: relative;
-      "></div>
+            flex: 1;
+            min-width: 0;
+            min-height: 0;
+            position: relative;
+        "></div>
 
         <!-- Right Trace Panel -->
         <div id="trace-panel" style="
-        width: 300px;
-        overflow-y: auto;
-        border-left: 1px solid #ccc;
-        padding: 10px;
-        background: #f7f7f7;
-        flex-shrink: 0;
-      ">
-            <div class="condition-title">Path Conditions</div>
-            <ul id="condition-list" class="condition-list"></ul>
+            width: 300px;
+            overflow-y: auto;
+            border-left: 1px solid #ccc;
+            padding: 10px;
+            background: #f7f7f7;
+            flex-shrink: 0;
+        ">
+        <div class="condition-title">Path Conditions</div>
+        <ul id="condition-list" class="condition-list"></ul>
+    </div>
+
+    <!-- Parent Choice Modal -->
+    <div id="parent-choice-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">Choose a parent node to step back to:</div>
+            <div id="parent-choice-buttons"></div>
         </div>
+    </div>
+
         <script>
             const searchParams = new URLSearchParams(window.location.search);
             const secret = searchParams.get('secret');
@@ -300,17 +366,37 @@
 
             function promptParentChoice(parents) {
                 return new Promise((resolve) => {
-                    const sidebar = document.getElementById('trace-panel');
-                    sidebar.innerHTML = "<h3>Choose a parent:</h3>";
+                    const modal = document.getElementById('parent-choice-modal');
+                    const buttonsContainer = document.getElementById('parent-choice-buttons');
+                    
+                    // Clear previous buttons
+                    buttonsContainer.innerHTML = '';
 
+                    // Create buttons for each parent option
                     parents.forEach((p, i) => {
                         const btn = document.createElement('button');
-                        console.log("parent ", p);
-                        const parentNode = cy.getElementById(p.source)
-                        btn.textContent = `${i + 1}: ${parentNode.data('name' || p.source)}`;
-                        btn.onclick = () => resolve(p.source);
-                        sidebar.appendChild(btn);
+                        btn.className = 'modal-button';
+                        
+                        const parentNode = cy.getElementById(p.source);
+                        const parentName = parentNode.data('name') || p.source;
+                        btn.textContent = `${i + 1}. ${parentName}`;
+                        
+                        btn.onclick = () => {
+                            modal.style.display = 'none';
+                            resolve(p.source);
+                        };
+                        
+                        buttonsContainer.appendChild(btn);
                     });
+
+                    // Show the modal
+                    modal.style.display = 'flex';
+                    
+                    // Focus the first button for keyboard navigation
+                    const firstButton = buttonsContainer.querySelector('.modal-button');
+                    if (firstButton) {
+                        firstButton.focus();
+                    }
                 });
             }
 
@@ -647,6 +733,33 @@
                             // Ignore when typing in input fields
                             if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
 
+                            // Check if modal is open
+                            const modal = document.getElementById('parent-choice-modal');
+                            const isModalOpen = modal.style.display === 'flex';
+                            
+                            if (isModalOpen) {
+                                // Handle modal navigation
+                                const buttons = Array.from(document.querySelectorAll('#parent-choice-buttons .modal-button'));
+                                const focusedButton = document.activeElement;
+                                const currentIndex = buttons.indexOf(focusedButton);
+                                
+                                if (e.key === 'ArrowUp' && currentIndex > 0) {
+                                    e.preventDefault();
+                                    buttons[currentIndex - 1].focus();
+                                } else if (e.key === 'ArrowDown' && currentIndex < buttons.length - 1) {
+                                    e.preventDefault();
+                                    buttons[currentIndex + 1].focus();
+                                } else if (e.key === 'Enter' && focusedButton && focusedButton.classList.contains('modal-button')) {
+                                    e.preventDefault();
+                                    focusedButton.click();
+                                } else if (e.key === 'Escape') {
+                                    // Close modal without selection (maybe stay at current node)
+                                    modal.style.display = 'none';
+                                }
+                                return; // Don't handle other keys when modal is open
+                            }
+
+                            // Normal navigation (when modal is not open)
                             if (e.key === 'ArrowUp') {
                                 stepBackward();
                             } else if (e.key === 'ArrowDown') {
