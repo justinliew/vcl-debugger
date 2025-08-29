@@ -11,7 +11,7 @@
     <script src="https://unpkg.com/cytoscape-expand-collapse@4.1.1/cytoscape-expand-collapse.js"></script>
 
     <style>
-        #sidebar {
+        #function-list {
             top: 0;
             left: 0;
             width: 200px;
@@ -76,7 +76,7 @@
     <div style="flex:1; display:flex; min-height:0; overflow: hidden;">
 
         <!-- Left Sidebar -->
-        <div id="sidebar" style="
+        <div id="function-list" style="
         width: 200px;
         overflow-y: auto;
         border-right: 1px solid #ccc;
@@ -339,7 +339,7 @@
             }
 
             function renderSidebar() {
-                const sidebar = document.getElementById('sidebar');
+                const sidebar = document.getElementById('function-list');
                 sidebar.innerHTML = '<h3>Functions</h3>';
 
                 for (const [fn, { nodes }] of functionGraphs.entries()) {
@@ -634,10 +634,10 @@
                     "fastly_key": secret
                 };
 
-                // fetch('./elements.json')
-                    fetch("https://vcl-debugger.edgecompute.app/get_flow", {
-                        headers: headers
-                    })
+                fetch('./elements.json')
+                    // fetch("https://vcl-debugger.edgecompute.app/get_flow", {
+                    //     headers: headers
+                    // })
                     .then(res => {
                         if (!res.ok) throw new Error("Failed to fetch elements.json");
                         return res.json();
