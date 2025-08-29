@@ -372,22 +372,22 @@
                     // Clear previous buttons
                     buttonsContainer.innerHTML = '';
 
-                    // First, expand ALL parent nodes and their ancestor chains
+                    // First, expand any collapsed parent nodes so we can show their actual content
                     parents.forEach(p => {
                         const parentNode = cy.getElementById(p.source);
                         
-                        // Expand the entire ancestor chain for this parent
-                        const ancestorChain = [];
-                        let currentAncestor = parentMap[p.source];
-                        
-                        // Build the full ancestor chain
-                        while (currentAncestor) {
-                            ancestorChain.unshift(currentAncestor); // Add to front so we expand from top down
-                            currentAncestor = parentMap[currentAncestor];
+                        // Check if the parent node is collapsed and expand it
+                        if (expandCollapseApi && expandCollapseApi.expandableNodes([parentNode]).length > 0) {
+                            try {
+                                expandCollapseApi.expand(parentNode);
+                            } catch (e) {
+                                console.warn('Could not expand parent node for choice display:', p.source, e);
+                            }
                         }
                         
-                        // Expand all ancestors from top-level down
-                        ancestorChain.forEach(ancestorId => {
+                        // Also expand any parents of this parent to make sure it's fully visible
+                        let ancestorId = parentMap[p.source];
+                        while (ancestorId) {
                             const ancestorNode = cy.getElementById(ancestorId);
                             if (expandCollapseApi && expandCollapseApi.expandableNodes([ancestorNode]).length > 0) {
                                 try {
@@ -396,22 +396,25 @@
                                     console.warn('Could not expand ancestor node:', ancestorId, e);
                                 }
                             }
-                        });
-                        
-                        // Finally, expand the parent node itself
-                        if (expandCollapseApi && expandCollapseApi.expandableNodes([parentNode]).length > 0) {
-                            try {
-                                expandCollapseApi.expand(parentNode);
-                            } catch (e) {
-                                console.warn('Could not expand parent node for choice display:', p.source, e);
-                            }
+                            ancestorId = parentMap[ancestorId];
                         }
                     });
 
-                    // Create buttons for each parent option (now that they're all expanded)
+                    // Function to highlight a specific parent node
+                    function highlightParent(parentId) {
+                        // Clear all highlights
+                        cy.elements().removeClass('highlighted');
+                        
+                        // Highlight the selected parent
+                        const parentNode = cy.getElementById(parentId);
+                        parentNode.addClass('highlighted');
+                    }
+
+                    // Create buttons for each parent option (now that they're expanded)
                     parents.forEach((p, i) => {
                         const btn = document.createElement('button');
                         btn.className = 'modal-button';
+                        btn.setAttribute('data-parent-id', p.source);
                         
                         const parentNode = cy.getElementById(p.source);
                         const parentName = parentNode.data('name') || p.source;
@@ -424,8 +427,19 @@
                         
                         btn.textContent = displayText;
                         
+                        // Add hover and focus event listeners for live preview
+                        btn.addEventListener('mouseenter', () => {
+                            highlightParent(p.source);
+                        });
+                        
+                        btn.addEventListener('focus', () => {
+                            highlightParent(p.source);
+                        });
+                        
                         btn.onclick = () => {
                             modal.style.display = 'none';
+                            // Clear highlights before resolving
+                            cy.elements().removeClass('highlighted');
                             resolve(p.source);
                         };
                         
@@ -435,10 +449,13 @@
                     // Show the modal
                     modal.style.display = 'flex';
                     
-                    // Focus the first button for keyboard navigation
+                    // Focus the first button for keyboard navigation and highlight its node
                     const firstButton = buttonsContainer.querySelector('.modal-button');
                     if (firstButton) {
                         firstButton.focus();
+                        // Highlight the first option immediately
+                        const firstParentId = firstButton.getAttribute('data-parent-id');
+                        highlightParent(firstParentId);
                     }
                 });
             }
