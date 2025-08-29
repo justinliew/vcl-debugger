@@ -372,14 +372,57 @@
                     // Clear previous buttons
                     buttonsContainer.innerHTML = '';
 
-                    // Create buttons for each parent option
+                    // First, expand ALL parent nodes and their ancestor chains
+                    parents.forEach(p => {
+                        const parentNode = cy.getElementById(p.source);
+                        
+                        // Expand the entire ancestor chain for this parent
+                        const ancestorChain = [];
+                        let currentAncestor = parentMap[p.source];
+                        
+                        // Build the full ancestor chain
+                        while (currentAncestor) {
+                            ancestorChain.unshift(currentAncestor); // Add to front so we expand from top down
+                            currentAncestor = parentMap[currentAncestor];
+                        }
+                        
+                        // Expand all ancestors from top-level down
+                        ancestorChain.forEach(ancestorId => {
+                            const ancestorNode = cy.getElementById(ancestorId);
+                            if (expandCollapseApi && expandCollapseApi.expandableNodes([ancestorNode]).length > 0) {
+                                try {
+                                    expandCollapseApi.expand(ancestorNode);
+                                } catch (e) {
+                                    console.warn('Could not expand ancestor node:', ancestorId, e);
+                                }
+                            }
+                        });
+                        
+                        // Finally, expand the parent node itself
+                        if (expandCollapseApi && expandCollapseApi.expandableNodes([parentNode]).length > 0) {
+                            try {
+                                expandCollapseApi.expand(parentNode);
+                            } catch (e) {
+                                console.warn('Could not expand parent node for choice display:', p.source, e);
+                            }
+                        }
+                    });
+
+                    // Create buttons for each parent option (now that they're all expanded)
                     parents.forEach((p, i) => {
                         const btn = document.createElement('button');
                         btn.className = 'modal-button';
                         
                         const parentNode = cy.getElementById(p.source);
                         const parentName = parentNode.data('name') || p.source;
-                        btn.textContent = `${i + 1}. ${parentName}`;
+                        
+                        // Show more context: node name and edge condition if available
+                        let displayText = `${i + 1}. ${parentName}`;
+                        if (p.cond && p.cond.trim()) {
+                            displayText += ` [${p.cond}]`;
+                        }
+                        
+                        btn.textContent = displayText;
                         
                         btn.onclick = () => {
                             modal.style.display = 'none';
