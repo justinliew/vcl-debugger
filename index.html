@@ -105,527 +105,568 @@
             <div class="condition-title">Path Conditions</div>
             <ul id="condition-list" class="condition-list"></ul>
         </div>
-
-    </div>
-    <script>
-        const searchParams = new URLSearchParams(window.location.search);
-        const secret = searchParams.get('secret');
-
-        let cy;
-        let functionGraphs = new Map();
-
-        // for expand/collapse
-        let expandCollapseApi;
-        let collapsedState = new Map();
-        let previouslyExpandedParents = [];
-
-        // for navigation
-        let executionPointer; // Current node id
-        let isNavigating = false;
-        let navigationHistory = []; // [{ nodeId, parents: [] }]
-        let conditionTrace = [];     // Array of { nodeId, branchTrue }
-
-        // pure data structs for inspection
-        let reverseAdjacency = new Map();
-        let parentMap = new Map();
-
-        // const layoutParams = {
-        //     name: 'dagre',
-        //     rankDir: 'TB',
-        //     nodeSep: 75,
-        //     edgeSep: 15,
-        //     rankSep: 100,
-        //     ranker: 'network-simplex',
-        //     minLen: 2,
-        //     animate: false,
-        //     spacingFactor: 1.2,
-        //     avoidOverlap: true,
-        //     padding: 10,
-        //     fit: false
-        // };
-        const layoutParams = {
-            name: 'dagre',
-            rankDir: 'TB',
-            fit: false
-        };
-
-        function findNameFromId(id) {
-            return functionGraphs.get(id).name;
-        }
-
-        async function toggleNavigation() {
-            isNavigating = document.getElementById('navtogglebtn').checked;
-
-            if (isNavigating) clearConditionSidebar();
-        }
-
-        function getAllDescendants(node) {
-            const descendants = [];
-
-            function collect(id) {
-                const children = cy.nodes(`[parent = "${id}"]`);
-                for (const child of children) {
-                    descendants.push(child);
-                    collect(child.id()); // recursive
-                }
-            }
-
-            collect(node.id());
-            return descendants;
-        }
-
-        // Store collapsed descendants before collapsing
-        async function expandAllDescendantsRecursive(node, api) {
-            const toExpand = getAllDescendants(node)
-                .filter(n => n.hasClass('cy-expand-collapse-collapsed-node'));
-            collapsedState.set(node.id(), toExpand);
-
-            for (const collapsed of toExpand) {
-                try {
-                    await api.expand(collapsed);
-                } catch (e) {
-                    console.warn('Expansion error on', collapsed, e);
-                }
-            }
-        }
-
-        async function handle_expand_collapse(node) {
-            try {
-                if (expandCollapseApi.expandableNodes([node]).length > 0) {
-                    expandCollapseApi.expand(node);
-
-                } else if (expandCollapseApi.collapsibleNodes([node]).length > 0) {
-                    await expandAllDescendantsRecursive(node, expandCollapseApi); // FULLY expand first
-                    expandCollapseApi.collapse(node);
-                }
-            } catch (err) {
-                console.warn('Expand/collapse error:', err);
-            }
-        }
-
-        // function highlightCurrent(pan) {
-        //     cy.elements().removeClass('highlighted');
-        //     if (executionPointer) {
-        //         executionPointer.addClass('highlighted');
-        //     }
-        //     if (pan) {
-        //         setTimeout(() => {
-        //             cy.animate({
-        //                 center: { eles: executionPointer },
-        //                 zoom: 1, // or your preferred zoom level
-        //                 duration: 500,
-        //                 easing: 'ease-in-out'
-        //             });
-        //         }, 100);
-        //     }
-        // }
-
-        function clearConditionSidebar() {
-            const conditionList = document.getElementById("condition-list");
-            conditionList.innerHTML = "";
-        }
-
-        function extractCondition(expression) {
-            expression = expression.trim();
-
-            if (expression.startsWith("if")) {
-                // Remove "if"
-                expression = expression.slice(2).trim();
-            }
-
-            // Remove surrounding parentheses if present
-            if (expression.startsWith("(") && expression.endsWith(")")) {
-                expression = expression.slice(1, -1).trim();
-            }
-
-            return expression;
-        }
-
-        function updateConditionSidebar() {
-            const cond = conditionTrace[conditionTrace.length - 1];
-            const node = cy.getElementById(cond.nodeId);
-            const text = extractCondition(`${node.data('name')}`);
-            const conditionList = document.getElementById("condition-list");
-            const li = document.createElement("li");
-            li.textContent = text;
-            li.style.backgroundColor = cond.branchTrue ? "#d4edda" : "#f8d7da"; // Green for true, Red for false
-
-            conditionList.appendChild(li);
-        }
-
-        function updateButtons(preds) {
-            const container = document.getElementById('step-controls');
-            container.innerHTML = ''; // cleaar
-            preds.forEach(p => {
-                const parentNode = cy.getElementById(p.source);
-                const label = parentNode.data('name' || p.source);
-                const condition = cy.getElementById(p.edge).data('name') || '';
-                console.log("pred ", p.source, p.edge, parentNode.data(), cy.getElementById(p.edge).data(), label, condition);
-
-                const btn = document.createElement('button');
-                btn.textContent = `${label} ${condition ? `[${condition}]` : ''}`;
-                btn.onclick = () => stepBackTo(p.source);
-                container.appendChild(btn);
-            });
-        }
-
-        function getImmediatePredecessors(nodeId) {
-            return reverseAdjacency[nodeId] || [];
-        }
-
-        function highlightStep(nodeId) {
-            cy.elements().removeClass('highlighted');
-
-            const preds = getImmediatePredecessors(nodeId);
-            preds.forEach(p => {
-                console.log("highlighting predecessor ", p.source, p.edge);
-                cy.getElementById(p.source).addClass('highlighted');
-                cy.getElementById(p.edge).addClass('highlighted');
-            });
-        }
-
-        function ensureExpanded(nodeId) {
-            let parent = parentMap[nodeId];
-            while (parent) {
-                console.log("checking parent ", parent);
-                // if (cy.getElementById(parent).isParent()) {
-                    expandCollapseApi.expand(cy.getElementById(parent));
-                // }
-                parent = parentMap[parent];
-            }
-        }
-
-        function stepBackTo(nodeId) {
-            executionPointer = nodeId;
-
-            const preds = getImmediatePredecessors(nodeId);
-            for (pred of preds) {
-                console.log("Pred ", pred);
-                ensureExpanded(pred.source);
-            }
-            highlightStep(nodeId);
-            navigationHistory.push({ nodeId, parents: preds });
-
-            updateButtons(preds);
-        }
-
-        function renderSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            sidebar.innerHTML = '<h3>Functions</h3>';
-
-            for (const [fn, { nodes }] of functionGraphs.entries()) {
-                const item = document.createElement('div');
-                item.textContent = findNameFromId(fn);
-                item.className = 'sidebar-item';
-                item.addEventListener('click', () => loadFunctionGraph(fn));
-                sidebar.appendChild(item);
-            }
-        }
-
-        function buildDataStructs(nodes, edges) {
-            let nodemap = new Map();
-
-            nodes.forEach(n => {
-                parentMap[n.data.id] = n.data.parent;
-                nodemap[n.data.id] = n;
-            });
-
-            edges.forEach(e => {
-                const tgt = e.data.target;
-                if (!reverseAdjacency[tgt]) reverseAdjacency[tgt] = [];
-
-                const obj = { source: e.data.source, edge: e.data.id, type: nodemap[e.data.source].data.type, cond: e.data.name, code: nodemap[e.data.source].data.name };
-
-                reverseAdjacency[tgt].push(obj);
-            });
-            nodes.forEach(n => {
-                if (!reverseAdjacency[n.data.id]) reverseAdjacency[n.data.id] = [];
-            });
-        }
-
-        function loadFunctionGraph(fnName) {
-            const { nodes, edges } = functionGraphs.get(fnName);
-            buildDataStructs(nodes, edges);
-            if (cy) {
-                cy.destroy();
-            }
-
-            cy = cytoscape({
-                container: document.getElementById('cy'),
-                elements: [...nodes, ...edges],
-                minZoom: 0.1,
-                maxZoom: 2.5,
-                style: [
-                    {
-                        selector: 'node[name]',
-                        style: {
-                            'shape': 'roundrectangle',
-                            'text-wrap': 'wrap',
-                            'text-max-width': 400,
-                            'background-color': '#eeffee',
-                            'label': 'data(name)',
-                            'color': '#333',
-                            'text-valign': 'center',
-                            'text-halign': 'center',
-                            'text-margin-x': 8,
-                            'font-family': 'monospace',
-                            'font-size': 10,
-                            'width': 'data(width)',
-                            'height': 'data(height)',
-                            'padding': '8px',
-                            'border-width': 2,
-                            'border-color': '#eee'
-                        }
-                    },
-                    { selector: 'node[type = "sub"]', style: { 'background-color': '#e0e0e0' } },
-                    { selector: 'node[type = "conditional"]', style: { 'background-color': '#FFDD57' } },
-                    { selector: 'node[type = "terminal"]', style: { 'background-color': '#EF5350' } },
-                    {
-                        selector: 'node[type = "start"]',
-                        style: { 'background-color': '#81C784', 'shape': 'ellipse' }
-                    },
-                    {
-                        selector: 'edge[name]',
-                        style: {
-                            'curve-style': 'bezier',
-                            'target-arrow-shape': 'triangle',
-                            'target-arrow-color': '#999',
-                            'line-color': '#999',
-                            'font-family': 'monospace',
-                            'font-size': 10,
-                            'width': 2,
-                            'label': 'data(name)'
-                        }
-                    },
-                    {
-                        selector: 'edge',
-                        style: {
-                            'curve-style': 'bezier',
-                            'target-arrow-shape': 'triangle',
-                            'target-arrow-color': '#999',
-                            'line-color': '#999',
-                            'font-family': 'monospace',
-                            'font-size': 10,
-                            'width': 2
-                        }
-                    },
-                    {
-                        selector: 'node.cy-expand-collapse-collapsed-node',
-                        style: {
-                            'background-color': '#ADD8E6',
-                            'shape': 'roundrectangle',
-                            'label': 'data(name)',
-                            'width': 'data(width)',
-                            'height': 'data(height)',
-                            'text-valign': 'center',
-                            'text-halign': 'center',
-                            'text-wrap': 'wrap',
-                            'border-width': 2,
-                            'border-color': '#eee'
-                        }
-                    },
-                    //                    { selector: 'node[type = "parent"]', style: { 'background-color': '#e0e0e0' } },
-                    {
-                        selector: 'node:parent',
-                        style: {
-                            'label': '',
-                            'background-color': '#e0e0e0',
-                            'width': 400
-                        }
-                    },
-                    {
-                        selector: '.traced',
-                        style: {
-                            'line-color': '#42A5F5',
-                            'target-arrow-color': '#42A5F5',
-                            'width': 4
-                        }
-                    },
-                    {
-
-                        selector: '.highlighted',
-                        style: {
-                            'border-width': 4,
-                            'border-color': '#FFA726',
-                            'background-color': '#FFF3E0'
-                        }
-                    }
-                ]
-            });
-
-            cy.ready(() => {
-                expandCollapseApi = cy.expandCollapse({
-                    layoutBy: layoutParams,
-                    animate: false,
-                    cueEnabled: false,
-                    fit: false
-                });
-                cy.autoungrabify(true);
-                const allParents = cy.nodes().filter(n => n.isParent());
-
-                // Sort by depth: deeper parents first
-                const sortedByDepth = allParents.sort((a, b) => {
-                    return a.descendants().length - b.descendants().length;
-                });
-
-                // Collapse all in order
-                for (const parent of sortedByDepth) {
-                    try {
-                        expandCollapseApi.collapse(parent);
-                    } catch (e) {
-                        console.warn('Collapse error on startup:', parent.id(), e);
-                    }
-                }
-
-                const layout = cy.layout({
-                    name: 'dagre',
-                    rankDir: 'TB',
-                    fit: true
-                });
-
-                layout.on('layoutstop', () => {
-                    // const bb = cy.elements().boundingBox();
-                    // cy.zoom(1.5);
-                    // cy.pan({ x: bb.w / 2, y: -bb.y1 + 200 });
-
-                    cy.undoRedo({});
-                    cy.nodes('node:parent').forEach(parent => {
-                        const label = parent.data('name') || '(group)';
-                        parent.data('collapsedLabel', label);
-                    });
-
-                    // Click-to-toggle collapse/expand
-                    cy.on('tap', 'node', async (e) => {
-                        const node = e.target;
-
-                        if (isNavigating) {
-                            navigationHistory = [];
-                            stepBackTo(node.id());
-                        } else {
-                            handle_expand_collapse(node);
-                        }
-                    });
-                });
-
-                layout.run();
-            });
-        }
-
-
-        async function expandAllCollapsedNodes(api) {
-            let expanded = false;
-
-            const collapsedNodes = cy.nodes('.cy-expand-collapse-collapsed-node');
-
-            for (const node of collapsedNodes) {
-                try {
-                    await api.expand(node);
-                    expanded = true;
-                } catch (err) {
-                    console.warn('Could not expand node:', node.id(), err);
-                }
-            }
-
-            // If any were expanded, call again to catch children
-            if (expanded) {
-                await expandAllCollapsedNodes(api);
-            }
-        }
-
-        function wrapRegexPipes(label) {
-            // we want to wrap long regexes
-            if (label.includes('*|.*')) {
-                // Keep outer parentheses and split inner content by |
-                const parts = label.split('|');
-                return parts.join('\n|\n');
-            }
-            return label;
-        }
-
-        function estimateWidth(name) {
-            const lines = name.split('\n').length;
-            const longestLine = name.split('\n').reduce((a, b) => a.length > b.length ? a : b, '').length;
-            return Math.min(400, 10 * longestLine + 20); // rough guess
-        }
-
-        function estimateHeight(label) {
-            const lineHeight = 14; // ~10px font + spacing
-            const maxWidth = 400;
-            const averageCharWidth = 7;
-            const charsPerLine = Math.floor(maxWidth / averageCharWidth);
-
-            const lines = label.split('\n').flatMap(line => {
-                const wrappedLines = Math.ceil(line.length / charsPerLine);
-                return Array(wrappedLines).fill(0);
-            });
-
-            const numLines = lines.length || 1;
-            const padding = 16;
-
-            return (numLines * lineHeight) + padding;
-        }
-
-        function groupElementsByFunction(elements) {
-            const graphs = new Map();
-
-            for (const el of elements) {
-                const fn = el.data?.root || 'Unknown';
-                if (!graphs.has(fn)) {
-                    graphs.set(fn, { name: el.data?.name || 'Unknown', nodes: [], edges: [] });
-                }
-
-                if (el.data.type === 'edge') {
-                    graphs.get(fn).edges.push(el);
-                } else {
-                    // Estimate size before pushing the node
-                    el.data.width = estimateWidth(el.data.name || '');
-                    el.data.height = estimateHeight(el.data.name || '');
-                    graphs.get(fn).nodes.push(el);
-                }
-            }
-
-            return graphs;
-        }
-
-        document.getElementById('loadButton').addEventListener('click', () => {
-            clearConditionSidebar();
-            const sid = encodeURIComponent(document.getElementById('sidInput').value);
-            const version = encodeURIComponent(document.getElementById('versionInput').value);
-
-            if (!sid || !version) {
-                alert("Please enter both sid and version");
-                return;
-            }
-
-            let headers = {
-                "sid": sid,
-                "version": version,
-                "fastly_key": secret
+        <script>
+            const searchParams = new URLSearchParams(window.location.search);
+            const secret = searchParams.get('secret');
+
+            let cy;
+            let functionGraphs = new Map();
+
+            // for expand/collapse
+            let expandCollapseApi;
+            let collapsedState = new Map();
+            let previouslyExpandedParents = [];
+
+            // for navigation
+            let currentNodeId = null;
+            let backStack = [];
+            let forwardStack = [];
+
+            let isNavigating = false;
+            // let executionPointer; // Current node id
+            // let navigationHistory = []; // [{ nodeId, parents: [] }]
+            // let navIndex = -1;
+            // let conditionTrace = [];     // Array of { nodeId, branchTrue }
+
+            // pure data structs for inspection
+            let reverseAdjacency = new Map();
+            let parentMap = new Map();
+
+            // const layoutParams = {
+            //     name: 'dagre',
+            //     rankDir: 'TB',
+            //     nodeSep: 75,
+            //     edgeSep: 15,
+            //     rankSep: 100,
+            //     ranker: 'network-simplex',
+            //     minLen: 2,
+            //     animate: false,
+            //     spacingFactor: 1.2,
+            //     avoidOverlap: true,
+            //     padding: 10,
+            //     fit: false
+            // };
+            const layoutParams = {
+                name: 'dagre',
+                rankDir: 'TB',
+                fit: false
             };
 
-            fetch('./elements.json')
-                // fetch("https://vcl-debugger.edgecompute.app/get_flow", {
-                //     headers: headers
-                // })
-                .then(res => {
-                    if (!res.ok) throw new Error("Failed to fetch elements.json");
-                    return res.json();
-                })
-                .then(data => {
-                    functionGraphs = groupElementsByFunction(data.elements);
-                    renderSidebar();
-                    if (cy) {
-                        cy.destroy();
+            function findNameFromId(id) {
+                return functionGraphs.get(id).name;
+            }
+
+            async function toggleNavigation() {
+                isNavigating = document.getElementById('navtogglebtn').checked;
+
+                if (isNavigating) clearConditionSidebar();
+            }
+
+            function getAllDescendants(node) {
+                const descendants = [];
+
+                function collect(id) {
+                    const children = cy.nodes(`[parent = "${id}"]`);
+                    for (const child of children) {
+                        descendants.push(child);
+                        collect(child.id()); // recursive
+                    }
+                }
+
+                collect(node.id());
+                return descendants;
+            }
+
+            // Store collapsed descendants before collapsing
+            async function expandAllDescendantsRecursive(node, api) {
+                const toExpand = getAllDescendants(node)
+                    .filter(n => n.hasClass('cy-expand-collapse-collapsed-node'));
+                collapsedState.set(node.id(), toExpand);
+
+                for (const collapsed of toExpand) {
+                    try {
+                        await api.expand(collapsed);
+                    } catch (e) {
+                        console.warn('Expansion error on', collapsed, e);
+                    }
+                }
+            }
+
+            async function handle_expand_collapse(node) {
+                try {
+                    if (expandCollapseApi.expandableNodes([node]).length > 0) {
+                        expandCollapseApi.expand(node);
+
+                    } else if (expandCollapseApi.collapsibleNodes([node]).length > 0) {
+                        await expandAllDescendantsRecursive(node, expandCollapseApi); // FULLY expand first
+                        expandCollapseApi.collapse(node);
+                    }
+                } catch (err) {
+                    console.warn('Expand/collapse error:', err);
+                }
+            }
+
+            function clearConditionSidebar() {
+                const conditionList = document.getElementById("condition-list");
+                conditionList.innerHTML = "";
+            }
+
+            function extractCondition(expression) {
+                expression = expression.trim();
+
+                if (expression.startsWith("if")) {
+                    // Remove "if"
+                    expression = expression.slice(2).trim();
+                }
+
+                // Remove surrounding parentheses if present
+                if (expression.startsWith("(") && expression.endsWith(")")) {
+                    expression = expression.slice(1, -1).trim();
+                }
+
+                return expression;
+            }
+
+            function updateConditionSidebar() {
+                const cond = conditionTrace[conditionTrace.length - 1];
+                const node = cy.getElementById(cond.nodeId);
+                const text = extractCondition(`${node.data('name')}`);
+                const conditionList = document.getElementById("condition-list");
+                const li = document.createElement("li");
+                li.textContent = text;
+                li.style.backgroundColor = cond.branchTrue ? "#d4edda" : "#f8d7da"; // Green for true, Red for false
+
+                conditionList.appendChild(li);
+            }
+
+            function updateButtons(preds) {
+                const container = document.getElementById('step-controls');
+                container.innerHTML = ''; // cleaar
+                preds.forEach(p => {
+                    const parentNode = cy.getElementById(p.source);
+                    const label = parentNode.data('name' || p.source);
+                    const condition = cy.getElementById(p.edge).data('name') || '';
+                    console.log("pred ", p.source, p.edge, parentNode.data(), cy.getElementById(p.edge).data(), label, condition);
+
+                    const btn = document.createElement('button');
+                    btn.textContent = `${label} ${condition ? `[${condition}]` : ''}`;
+                    btn.onclick = () => stepBackTo(p.source);
+                    container.appendChild(btn);
+                });
+            }
+
+            function getImmediatePredecessors(nodeId) {
+                return reverseAdjacency[nodeId] || [];
+            }
+
+            function highlightCurrentNode() {
+                cy.getElementById(currentNodeId).addClass('highlighted');
+            }
+
+            function navigateTo(nodeId) {
+                currentNodeId = nodeId;
+                cy.elements().removeClass('highlighted');
+                highlightCurrentNode(currentNodeId);
+            }
+
+            function focusOnNode(newNodeId, prevNodeId) {
+                // Expand parents if collapsed
+                let p = parentMap[newNodeId];
+                while (p) {
+                    expandCollapseApi.expand(cy.getElementById(p));
+                    p = parentMap[p];
+                }
+
+                // Clear old highlights
+                cy.elements().removeClass('highlighted');
+
+                // Highlight edge from prev → new
+                // TODO - is this what we want?
+                // if (prevNodeId) {
+                //     cy.edges(`[source="${prevNodeId}"][target="${newNodeId}"]`).addClass('highlighted');
+                // }
+
+                // Focus viewport on new node
+                const node = cy.getElementById(newNodeId);
+                cy.animate({
+                    center: { eles: node },
+                    zoom: 1.2,
+                    duration: 300
+                });
+
+                currentNodeId = newNodeId;
+                highlightCurrentNode(currentNodeId);
+            }
+
+            function promptParentChoice(parents) {
+                return new Promise((resolve) => {
+                    const sidebar = document.getElementById('trace-panel');
+                    sidebar.innerHTML = "<h3>Choose a parent:</h3>";
+
+                    parents.forEach((p, i) => {
+                        const btn = document.createElement('button');
+                        console.log("parent ", p);
+                        const parentNode = cy.getElementById(p.source)
+                        btn.textContent = `${i + 1}: ${parentNode.data('name' || p.source)}`;
+                        btn.onclick = () => resolve(p.source);
+                        sidebar.appendChild(btn);
+                    });
+                });
+            }
+
+            async function stepBackward() {
+                const parents = reverseAdjacency[currentNodeId] || [];
+                if (parents.length === 0) return; // at root
+
+                // If multiple, prompt user
+                let chosenParent;
+                if (parents.length === 1) {
+                    chosenParent = parents[0].source;
+                } else {
+                    chosenParent = await promptParentChoice(parents);
+                }
+
+                forwardStack.push(currentNodeId);
+                backStack.push(chosenParent);
+                focusOnNode(chosenParent, currentNodeId);
+            }
+
+            function stepForward() {
+                if (forwardStack.length === 0) return;
+                const nextNode = forwardStack.pop();
+                backStack.push(currentNodeId);
+                focusOnNode(nextNode, currentNodeId);
+            }
+
+            function renderSidebar() {
+                const sidebar = document.getElementById('sidebar');
+                sidebar.innerHTML = '<h3>Functions</h3>';
+
+                for (const [fn, { nodes }] of functionGraphs.entries()) {
+                    const item = document.createElement('div');
+                    item.textContent = findNameFromId(fn);
+                    item.className = 'sidebar-item';
+                    item.addEventListener('click', () => loadFunctionGraph(fn));
+                    sidebar.appendChild(item);
+                }
+            }
+
+            function buildDataStructs(nodes, edges) {
+                let nodemap = new Map();
+
+                nodes.forEach(n => {
+                    parentMap[n.data.id] = n.data.parent;
+                    nodemap[n.data.id] = n;
+                });
+
+                edges.forEach(e => {
+                    const tgt = e.data.target;
+                    if (!reverseAdjacency[tgt]) reverseAdjacency[tgt] = [];
+
+                    const obj = { source: e.data.source, edge: e.data.id, type: nodemap[e.data.source].data.type, cond: e.data.name, code: nodemap[e.data.source].data.name };
+
+                    reverseAdjacency[tgt].push(obj);
+                });
+                nodes.forEach(n => {
+                    if (!reverseAdjacency[n.data.id]) reverseAdjacency[n.data.id] = [];
+                });
+            }
+
+            function loadFunctionGraph(fnName) {
+                const { nodes, edges } = functionGraphs.get(fnName);
+                buildDataStructs(nodes, edges);
+                if (cy) {
+                    cy.destroy();
+                }
+
+                cy = cytoscape({
+                    container: document.getElementById('cy'),
+                    elements: [...nodes, ...edges],
+                    minZoom: 0.1,
+                    maxZoom: 2.5,
+                    style: [
+                        {
+                            selector: 'node[name]',
+                            style: {
+                                'shape': 'roundrectangle',
+                                'text-wrap': 'wrap',
+                                'text-max-width': 400,
+                                'background-color': '#eeffee',
+                                'label': 'data(name)',
+                                'color': '#333',
+                                'text-valign': 'center',
+                                'text-halign': 'center',
+                                'text-margin-x': 8,
+                                'font-family': 'monospace',
+                                'font-size': 10,
+                                'width': 'data(width)',
+                                'height': 'data(height)',
+                                'padding': '8px',
+                                'border-width': 2,
+                                'border-color': '#eee'
+                            }
+                        },
+                        { selector: 'node[type = "sub"]', style: { 'background-color': '#e0e0e0' } },
+                        { selector: 'node[type = "conditional"]', style: { 'background-color': '#FFDD57' } },
+                        { selector: 'node[type = "terminal"]', style: { 'background-color': '#EF5350' } },
+                        {
+                            selector: 'node[type = "start"]',
+                            style: { 'background-color': '#81C784', 'shape': 'ellipse' }
+                        },
+                        {
+                            selector: 'edge[name]',
+                            style: {
+                                'curve-style': 'bezier',
+                                'target-arrow-shape': 'triangle',
+                                'target-arrow-color': '#999',
+                                'line-color': '#999',
+                                'font-family': 'monospace',
+                                'font-size': 10,
+                                'width': 2,
+                                'label': 'data(name)'
+                            }
+                        },
+                        {
+                            selector: 'edge',
+                            style: {
+                                'curve-style': 'bezier',
+                                'target-arrow-shape': 'triangle',
+                                'target-arrow-color': '#999',
+                                'line-color': '#999',
+                                'font-family': 'monospace',
+                                'font-size': 10,
+                                'width': 2
+                            }
+                        },
+                        {
+                            selector: 'node.cy-expand-collapse-collapsed-node',
+                            style: {
+                                'background-color': '#ADD8E6',
+                                'shape': 'roundrectangle',
+                                'label': 'data(name)',
+                                'width': 'data(width)',
+                                'height': 'data(height)',
+                                'text-valign': 'center',
+                                'text-halign': 'center',
+                                'text-wrap': 'wrap',
+                                'border-width': 2,
+                                'border-color': '#eee'
+                            }
+                        },
+                        //                    { selector: 'node[type = "parent"]', style: { 'background-color': '#e0e0e0' } },
+                        {
+                            selector: 'node:parent',
+                            style: {
+                                'label': '',
+                                'background-color': '#e0e0e0',
+                                'width': 400
+                            }
+                        },
+                        {
+                            selector: '.traced',
+                            style: {
+                                'line-color': '#42A5F5',
+                                'target-arrow-color': '#42A5F5',
+                                'width': 4
+                            }
+                        },
+                        {
+
+                            selector: '.highlighted',
+                            style: {
+                                'border-width': 4,
+                                'border-color': '#FFA726',
+                                'background-color': '#FFF3E0'
+                            }
+                        }
+                    ]
+                });
+
+                cy.ready(() => {
+                    expandCollapseApi = cy.expandCollapse({
+                        layoutBy: layoutParams,
+                        animate: false,
+                        cueEnabled: false,
+                        fit: false
+                    });
+                    cy.autoungrabify(true);
+                    const allParents = cy.nodes().filter(n => n.isParent());
+
+                    // Sort by depth: deeper parents first
+                    const sortedByDepth = allParents.sort((a, b) => {
+                        return a.descendants().length - b.descendants().length;
+                    });
+
+                    // Collapse all in order
+                    for (const parent of sortedByDepth) {
+                        try {
+                            expandCollapseApi.collapse(parent);
+                        } catch (e) {
+                            console.warn('Collapse error on startup:', parent.id(), e);
+                        }
                     }
 
-                })
-                .catch(err => {
-                    console.error("Fetch error:", err);
-                    alert("Error fetching data. See console for details.");
-                });
-        });
+                    const layout = cy.layout({
+                        name: 'dagre',
+                        rankDir: 'TB',
+                        fit: true
+                    });
 
-    </script>
+                    layout.on('layoutstop', () => {
+                        // const bb = cy.elements().boundingBox();
+                        // cy.zoom(1.5);
+                        // cy.pan({ x: bb.w / 2, y: -bb.y1 + 200 });
+
+                        cy.undoRedo({});
+                        cy.nodes('node:parent').forEach(parent => {
+                            const label = parent.data('name') || '(group)';
+                            parent.data('collapsedLabel', label);
+                        });
+
+                        // Click-to-toggle collapse/expand
+                        cy.on('tap', 'node', async (e) => {
+                            const node = e.target;
+
+                            if (isNavigating) {
+                                currentNodeId = node.id();
+                                backStack = [];
+                                forwardStack = [];
+                                navigateTo(node.id());
+                            } else {
+                                handle_expand_collapse(node);
+                            }
+                        });
+                    });
+
+                    layout.run();
+                });
+            }
+
+
+            async function expandAllCollapsedNodes(api) {
+                let expanded = false;
+
+                const collapsedNodes = cy.nodes('.cy-expand-collapse-collapsed-node');
+
+                for (const node of collapsedNodes) {
+                    try {
+                        await api.expand(node);
+                        expanded = true;
+                    } catch (err) {
+                        console.warn('Could not expand node:', node.id(), err);
+                    }
+                }
+
+                // If any were expanded, call again to catch children
+                if (expanded) {
+                    await expandAllCollapsedNodes(api);
+                }
+            }
+
+            function wrapRegexPipes(label) {
+                // we want to wrap long regexes
+                if (label.includes('*|.*')) {
+                    // Keep outer parentheses and split inner content by |
+                    const parts = label.split('|');
+                    return parts.join('\n|\n');
+                }
+                return label;
+            }
+
+            function estimateWidth(name) {
+                const lines = name.split('\n').length;
+                const longestLine = name.split('\n').reduce((a, b) => a.length > b.length ? a : b, '').length;
+                return Math.min(400, 10 * longestLine + 20); // rough guess
+            }
+
+            function estimateHeight(label) {
+                const lineHeight = 14; // ~10px font + spacing
+                const maxWidth = 400;
+                const averageCharWidth = 7;
+                const charsPerLine = Math.floor(maxWidth / averageCharWidth);
+
+                const lines = label.split('\n').flatMap(line => {
+                    const wrappedLines = Math.ceil(line.length / charsPerLine);
+                    return Array(wrappedLines).fill(0);
+                });
+
+                const numLines = lines.length || 1;
+                const padding = 16;
+
+                return (numLines * lineHeight) + padding;
+            }
+
+            function groupElementsByFunction(elements) {
+                const graphs = new Map();
+
+                for (const el of elements) {
+                    const fn = el.data?.root || 'Unknown';
+                    if (!graphs.has(fn)) {
+                        graphs.set(fn, { name: el.data?.name || 'Unknown', nodes: [], edges: [] });
+                    }
+
+                    if (el.data.type === 'edge') {
+                        graphs.get(fn).edges.push(el);
+                    } else {
+                        // Estimate size before pushing the node
+                        el.data.width = estimateWidth(el.data.name || '');
+                        el.data.height = estimateHeight(el.data.name || '');
+                        graphs.get(fn).nodes.push(el);
+                    }
+                }
+
+                return graphs;
+            }
+
+            document.getElementById('loadButton').addEventListener('click', () => {
+                clearConditionSidebar();
+                const sid = encodeURIComponent(document.getElementById('sidInput').value);
+                const version = encodeURIComponent(document.getElementById('versionInput').value);
+
+                if (!sid || !version) {
+                    alert("Please enter both sid and version");
+                    return;
+                }
+
+                let headers = {
+                    "sid": sid,
+                    "version": version,
+                    "fastly_key": secret
+                };
+
+                // fetch('./elements.json')
+                    fetch("https://vcl-debugger.edgecompute.app/get_flow", {
+                        headers: headers
+                    })
+                    .then(res => {
+                        if (!res.ok) throw new Error("Failed to fetch elements.json");
+                        return res.json();
+                    })
+                    .then(data => {
+                        document.addEventListener('keydown', (e) => {
+                            // Ignore when typing in input fields
+                            if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+
+                            if (e.key === 'ArrowUp') {
+                                stepBackward();
+                            } else if (e.key === 'ArrowDown') {
+                                stepForward();
+                            }
+                        });
+                        functionGraphs = groupElementsByFunction(data.elements);
+                        renderSidebar();
+                        if (cy) {
+                            cy.destroy();
+                        }
+
+                    })
+                    .catch(err => {
+                        console.error("Fetch error:", err);
+                        alert("Error fetching data. See console for details.");
+                    });
+            });
+
+        </script>
 </body>
 
 </html>
