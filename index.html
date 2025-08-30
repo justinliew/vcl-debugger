@@ -159,7 +159,7 @@
             background: #f7f7f7;
             flex-shrink: 0;
         ">
-        <div class="condition-title">Path Conditions</div>
+        <div class="condition-title">Branch Decisions</div>
         <ul id="condition-list" class="condition-list"></ul>
     </div>
 
@@ -187,6 +187,7 @@
             let currentNodeId = null;
             let backStack = [];
             let forwardStack = [];
+            let navigationTrace = []; // Array of { nodeId, parentId, condition, nodeName }
 
             let isNavigating = false;
             // let executionPointer; // Current node id
@@ -277,6 +278,112 @@
                 conditionList.innerHTML = "";
             }
 
+            function clearNavigationTrace() {
+                navigationTrace = [];
+                updateTracePanel();
+            }
+
+            function addToNavigationTrace(nodeId, parentId = null, condition = null) {
+                const node = cy.getElementById(nodeId);
+                const nodeName = node.data('name') || nodeId;
+                const nodeType = node.data('type');
+                
+                if (!parentId) {
+                    // Starting node - always add it
+                    navigationTrace.push({
+                        nodeId: nodeId,
+                        parentId: null,
+                        condition: null,
+                        nodeName: nodeName,
+                        nodeType: nodeType,
+                        branchType: null,
+                        parentName: null
+                    });
+                } else {
+                    // Navigation step - only add if navigating TO a conditional node
+                    if (nodeType === 'conditional') {
+                        const parentNode = cy.getElementById(parentId);
+                        const parentName = parentNode.data('name') || parentId;
+                        
+                        // Determine branch type from the condition that brought us TO this conditional
+                        let branchType = '';
+                        if (condition) {
+                            const conditionLower = condition.toLowerCase().trim();
+                            if (conditionLower === 'true' || conditionLower === 'yes') {
+                                branchType = 'true';
+                            } else if (conditionLower === 'false' || conditionLower === 'no') {
+                                branchType = 'false';
+                            } else if (conditionLower === 'fallthrough') {
+                                branchType = 'fallthrough';
+                            } else if (condition.trim() === '') {
+                                branchType = 'blank';
+                            } else {
+                                branchType = condition;
+                            }
+                        } else {
+                            branchType = 'blank';
+                        }
+                        
+                        navigationTrace.push({
+                            nodeId: nodeId,
+                            parentId: parentId,
+                            condition: condition,
+                            nodeName: nodeName,
+                            nodeType: nodeType,
+                            branchType: branchType,
+                            parentName: parentName
+                        });
+                    }
+                }
+                
+                updateTracePanel();
+            }
+
+            function updateTracePanel() {
+                const conditionList = document.getElementById("condition-list");
+                conditionList.innerHTML = "";
+                
+                navigationTrace.forEach((trace, index) => {
+                    const li = document.createElement("li");
+                    
+                    let displayText;
+                    if (index === 0) {
+                        // Starting node
+                        displayText = `Start: ${trace.nodeName}`;
+                    } else {
+                        // Show: conditional node with prominent branch result
+                        displayText = `${trace.nodeName} [${trace.branchType.toUpperCase()}]`;
+                    }
+                    
+                    li.textContent = displayText;
+                    
+                    // Style the current node differently
+                    if (trace.nodeId === currentNodeId) {
+                        li.style.backgroundColor = "#d4edda"; // Green for current
+                        li.style.fontWeight = "bold";
+                    } else {
+                        // Color-code by branch type
+                        if (trace.branchType === 'true') {
+                            li.style.backgroundColor = "#d1ecf1"; // Light blue for true
+                        } else if (trace.branchType === 'false') {
+                            li.style.backgroundColor = "#f8d7da"; // Light red for false
+                        } else if (trace.branchType === 'fallthrough') {
+                            li.style.backgroundColor = "#fff3cd"; // Light yellow for fallthrough
+                        } else {
+                            li.style.backgroundColor = "#eef5ff"; // Default blue
+                        }
+                    }
+                    
+                    conditionList.appendChild(li);
+                });
+            }
+
+            function truncateTraceFromIndex(index) {
+                // Remove all trace entries after the given index
+                navigationTrace = navigationTrace.slice(0, index + 1);
+                updateTracePanel();
+            }
+
             function extractCondition(expression) {
                 expression = expression.trim();
 
@@ -333,9 +440,13 @@
                 currentNodeId = nodeId;
                 cy.elements().removeClass('highlighted');
                 highlightCurrentNode(currentNodeId);
+                
+                // Clear existing navigation trace and start fresh
+                clearNavigationTrace();
+                addToNavigationTrace(nodeId);
             }
 
-            function focusOnNode(newNodeId, prevNodeId) {
+            function focusOnNode(newNodeId, prevNodeId, condition = null) {
                 // Expand parents if collapsed
                 let p = parentMap[newNodeId];
                 while (p) {
@@ -362,6 +473,9 @@
 
                 currentNodeId = newNodeId;
                 highlightCurrentNode(currentNodeId);
+                
+                // Add to navigation trace
+                addToNavigationTrace(newNodeId, prevNodeId, condition);
             }
 
             function promptParentChoice(parents) {
@@ -372,22 +486,22 @@
                     // Clear previous buttons
                     buttonsContainer.innerHTML = '';
 
-                    // First, expand any collapsed parent nodes so we can show their actual content
+                    // First, expand ALL parent nodes and their complete ancestor chains
                     parents.forEach(p => {
                         const parentNode = cy.getElementById(p.source);
                         
-                        // Check if the parent node is collapsed and expand it
-                        if (expandCollapseApi && expandCollapseApi.expandableNodes([parentNode]).length > 0) {
-                            try {
-                                expandCollapseApi.expand(parentNode);
-                            } catch (e) {
-                                console.warn('Could not expand parent node for choice display:', p.source, e);
-                            }
+                        // Build the complete ancestor chain from top down
+                        const ancestorChain = [];
+                        let currentAncestor = parentMap[p.source];
+                        
+                        // Build the full ancestor chain
+                        while (currentAncestor) {
+                            ancestorChain.unshift(currentAncestor); // Add to front so we expand from top down
+                            currentAncestor = parentMap[currentAncestor];
                         }
                         
-                        // Also expand any parents of this parent to make sure it's fully visible
-                        let ancestorId = parentMap[p.source];
-                        while (ancestorId) {
+                        // Expand all ancestors from top-level down
+                        ancestorChain.forEach(ancestorId => {
                             const ancestorNode = cy.getElementById(ancestorId);
                             if (expandCollapseApi && expandCollapseApi.expandableNodes([ancestorNode]).length > 0) {
                                 try {
@@ -396,7 +510,15 @@
                                     console.warn('Could not expand ancestor node:', ancestorId, e);
                                 }
                             }
-                            ancestorId = parentMap[ancestorId];
+                        });
+                        
+                        // Finally, expand the parent node itself
+                        if (expandCollapseApi && expandCollapseApi.expandableNodes([parentNode]).length > 0) {
+                            try {
+                                expandCollapseApi.expand(parentNode);
+                            } catch (e) {
+                                console.warn('Could not expand parent node for choice display:', p.source, e);
+                            }
                         }
                     });
 
@@ -440,7 +562,10 @@
                             modal.style.display = 'none';
                             // Clear highlights before resolving
                             cy.elements().removeClass('highlighted');
-                            resolve(p.source);
+                            resolve({
+                                parentId: p.source,
+                                condition: p.cond
+                            });
                         };
                         
                         buttonsContainer.appendChild(btn);
@@ -465,23 +590,32 @@
                 if (parents.length === 0) return; // at root
 
                 // If multiple, prompt user
-                let chosenParent;
+                let chosenParent, chosenCondition;
                 if (parents.length === 1) {
                     chosenParent = parents[0].source;
+                    chosenCondition = parents[0].cond;
                 } else {
-                    chosenParent = await promptParentChoice(parents);
+                    const chosenParentObj = await promptParentChoice(parents);
+                    chosenParent = chosenParentObj.parentId;
+                    chosenCondition = chosenParentObj.condition;
                 }
 
+                // Don't truncate trace here - let the navigation build it naturally
                 forwardStack.push(currentNodeId);
                 backStack.push(chosenParent);
-                focusOnNode(chosenParent, currentNodeId);
+                focusOnNode(chosenParent, currentNodeId, chosenCondition);
             }
 
             function stepForward() {
                 if (forwardStack.length === 0) return;
                 const nextNode = forwardStack.pop();
                 backStack.push(currentNodeId);
-                focusOnNode(nextNode, currentNodeId);
+                
+                // Find the condition for this forward step
+                const edges = cy.edges(`[source="${currentNodeId}"][target="${nextNode}"]`);
+                const condition = edges.length > 0 ? edges[0].data('name') : null;
+                
+                focusOnNode(nextNode, currentNodeId, condition);
             }
 
             function renderSidebar() {
