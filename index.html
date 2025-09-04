@@ -159,17 +159,17 @@
             background: #f7f7f7;
             flex-shrink: 0;
         ">
-        <div class="condition-title">Branch Decisions</div>
-        <ul id="condition-list" class="condition-list"></ul>
-    </div>
-
-    <!-- Parent Choice Modal -->
-    <div id="parent-choice-modal" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">Choose a parent node to step back to:</div>
-            <div id="parent-choice-buttons"></div>
+            <div class="condition-title">Branch Decisions</div>
+            <ul id="condition-list" class="condition-list"></ul>
         </div>
-    </div>
+
+        <!-- Parent Choice Modal -->
+        <div id="parent-choice-modal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">Choose a parent node to step back to:</div>
+                <div id="parent-choice-buttons"></div>
+            </div>
+        </div>
 
         <script>
             const searchParams = new URLSearchParams(window.location.search);
@@ -287,7 +287,7 @@
                 const node = cy.getElementById(nodeId);
                 const nodeName = node.data('name') || nodeId;
                 const nodeType = node.data('type');
-                
+
                 if (!parentId) {
                     // Starting node - always add it
                     navigationTrace.push({
@@ -304,7 +304,7 @@
                     if (nodeType === 'conditional') {
                         const parentNode = cy.getElementById(parentId);
                         const parentName = parentNode.data('name') || parentId;
-                        
+
                         // Determine branch type from the condition that brought us TO this conditional
                         let branchType = '';
                         if (condition) {
@@ -323,7 +323,7 @@
                         } else {
                             branchType = 'blank';
                         }
-                        
+
                         navigationTrace.push({
                             nodeId: nodeId,
                             parentId: parentId,
@@ -335,17 +335,17 @@
                         });
                     }
                 }
-                
+
                 updateTracePanel();
             }
 
             function updateTracePanel() {
                 const conditionList = document.getElementById("condition-list");
                 conditionList.innerHTML = "";
-                
+
                 navigationTrace.forEach((trace, index) => {
                     const li = document.createElement("li");
-                    
+
                     let displayText;
                     if (index === 0) {
                         // Starting node
@@ -354,9 +354,9 @@
                         // Show: conditional node with prominent branch result
                         displayText = `${trace.nodeName} [${trace.branchType.toUpperCase()}]`;
                     }
-                    
+
                     li.textContent = displayText;
-                    
+
                     // Style the current node differently
                     if (trace.nodeId === currentNodeId) {
                         li.style.backgroundColor = "#d4edda"; // Green for current
@@ -373,7 +373,7 @@
                             li.style.backgroundColor = "#eef5ff"; // Default blue
                         }
                     }
-                    
+
                     conditionList.appendChild(li);
                 });
             }
@@ -440,7 +440,7 @@
                 currentNodeId = nodeId;
                 cy.elements().removeClass('highlighted');
                 highlightCurrentNode(currentNodeId);
-                
+
                 // Clear existing navigation trace and start fresh
                 clearNavigationTrace();
                 addToNavigationTrace(nodeId);
@@ -473,7 +473,7 @@
 
                 currentNodeId = newNodeId;
                 highlightCurrentNode(currentNodeId);
-                
+
                 // Add to navigation trace
                 addToNavigationTrace(newNodeId, prevNodeId, condition);
             }
@@ -482,24 +482,24 @@
                 return new Promise((resolve) => {
                     const modal = document.getElementById('parent-choice-modal');
                     const buttonsContainer = document.getElementById('parent-choice-buttons');
-                    
+
                     // Clear previous buttons
                     buttonsContainer.innerHTML = '';
 
                     // First, expand ALL parent nodes and their complete ancestor chains
                     parents.forEach(p => {
                         const parentNode = cy.getElementById(p.source);
-                        
+
                         // Build the complete ancestor chain from top down
                         const ancestorChain = [];
                         let currentAncestor = parentMap[p.source];
-                        
+
                         // Build the full ancestor chain
                         while (currentAncestor) {
                             ancestorChain.unshift(currentAncestor); // Add to front so we expand from top down
                             currentAncestor = parentMap[currentAncestor];
                         }
-                        
+
                         // Expand all ancestors from top-level down
                         ancestorChain.forEach(ancestorId => {
                             const ancestorNode = cy.getElementById(ancestorId);
@@ -511,7 +511,7 @@
                                 }
                             }
                         });
-                        
+
                         // Finally, expand the parent node itself
                         if (expandCollapseApi && expandCollapseApi.expandableNodes([parentNode]).length > 0) {
                             try {
@@ -526,7 +526,7 @@
                     function highlightParent(parentId) {
                         // Clear all highlights
                         cy.elements().removeClass('highlighted');
-                        
+
                         // Highlight the selected parent
                         const parentNode = cy.getElementById(parentId);
                         parentNode.addClass('highlighted');
@@ -537,27 +537,27 @@
                         const btn = document.createElement('button');
                         btn.className = 'modal-button';
                         btn.setAttribute('data-parent-id', p.source);
-                        
+
                         const parentNode = cy.getElementById(p.source);
                         const parentName = parentNode.data('name') || p.source;
-                        
+
                         // Show more context: node name and edge condition if available
                         let displayText = `${i + 1}. ${parentName}`;
                         if (p.cond && p.cond.trim()) {
                             displayText += ` [${p.cond}]`;
                         }
-                        
+
                         btn.textContent = displayText;
-                        
+
                         // Add hover and focus event listeners for live preview
                         btn.addEventListener('mouseenter', () => {
                             highlightParent(p.source);
                         });
-                        
+
                         btn.addEventListener('focus', () => {
                             highlightParent(p.source);
                         });
-                        
+
                         btn.onclick = () => {
                             modal.style.display = 'none';
                             // Clear highlights before resolving
@@ -567,13 +567,13 @@
                                 condition: p.cond
                             });
                         };
-                        
+
                         buttonsContainer.appendChild(btn);
                     });
 
                     // Show the modal
                     modal.style.display = 'flex';
-                    
+
                     // Focus the first button for keyboard navigation and highlight its node
                     const firstButton = buttonsContainer.querySelector('.modal-button');
                     if (firstButton) {
@@ -610,11 +610,11 @@
                 if (forwardStack.length === 0) return;
                 const nextNode = forwardStack.pop();
                 backStack.push(currentNodeId);
-                
+
                 // Find the condition for this forward step
                 const edges = cy.edges(`[source="${currentNodeId}"][target="${nextNode}"]`);
                 const condition = edges.length > 0 ? edges[0].data('name') : null;
-                
+
                 focusOnNode(nextNode, currentNodeId, condition);
             }
 
@@ -914,10 +914,10 @@
                     "fastly_key": secret
                 };
 
-                fetch('./elements.json')
-                    // fetch("https://vcl-debugger.edgecompute.app/get_flow", {
-                    //     headers: headers
-                    // })
+                // fetch('./elements.json')
+                fetch("https://vcl-debugger.edgecompute.app/get_flow", {
+                    headers: headers
+                })
                     .then(res => {
                         if (!res.ok) throw new Error("Failed to fetch elements.json");
                         return res.json();
@@ -930,13 +930,13 @@
                             // Check if modal is open
                             const modal = document.getElementById('parent-choice-modal');
                             const isModalOpen = modal.style.display === 'flex';
-                            
+
                             if (isModalOpen) {
                                 // Handle modal navigation
                                 const buttons = Array.from(document.querySelectorAll('#parent-choice-buttons .modal-button'));
                                 const focusedButton = document.activeElement;
                                 const currentIndex = buttons.indexOf(focusedButton);
-                                
+
                                 if (e.key === 'ArrowUp' && currentIndex > 0) {
                                     e.preventDefault();
                                     buttons[currentIndex - 1].focus();
