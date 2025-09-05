@@ -330,37 +330,42 @@
                         parentName: null
                     });
                 } else {
-                    // Navigation step - only add if navigating TO a conditional node
+                    // Navigation step - only add if navigating TO a conditional node AND it's not already in the trace
                     if (nodeType === 'conditional') {
-                        const parentNode = cy.getElementById(parentId);
-                        const parentName = parentNode.data('name') || parentId;
+                        // Check if this conditional node is already in the trace
+                        const existingEntry = navigationTrace.find(trace => trace.nodeId === nodeId);
+                        
+                        if (!existingEntry) {
+                            const parentNode = cy.getElementById(parentId);
+                            const parentName = parentNode.data('name') || parentId;
 
-                        // Determine branch type from the condition that brought us TO this conditional
-                        let branchType = '';
-                        if (condition) {
-                            const conditionLower = condition.toLowerCase().trim();
-                            if (conditionLower === 'true' || conditionLower === 'yes') {
-                                branchType = 'true';
-                            } else if (conditionLower === 'false' || conditionLower === 'no') {
-                                branchType = 'false';
-                            } else if (condition.trim() === '') {
-                                branchType = 'false';
+                            // Determine branch type from the condition that brought us TO this conditional
+                            let branchType = '';
+                            if (condition) {
+                                const conditionLower = condition.toLowerCase().trim();
+                                if (conditionLower === 'true' || conditionLower === 'yes') {
+                                    branchType = 'true';
+                                } else if (conditionLower === 'false' || conditionLower === 'no') {
+                                    branchType = 'false';
+                                } else if (condition.trim() === '') {
+                                    branchType = 'false';
+                                } else {
+                                    branchType = condition;
+                                }
                             } else {
-                                branchType = condition;
+                                branchType = 'false';
                             }
-                        } else {
-                            branchType = 'false';
-                        }
 
-                        navigationTrace.push({
-                            nodeId: nodeId,
-                            parentId: parentId,
-                            condition: condition,
-                            nodeName: nodeName,
-                            nodeType: nodeType,
-                            branchType: branchType,
-                            parentName: parentName
-                        });
+                            navigationTrace.push({
+                                nodeId: nodeId,
+                                parentId: parentId,
+                                condition: condition,
+                                nodeName: nodeName,
+                                nodeType: nodeType,
+                                branchType: branchType,
+                                parentName: parentName
+                            });
+                        }
                     }
                 }
 
