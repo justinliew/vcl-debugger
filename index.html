@@ -376,17 +376,15 @@
                 const conditionList = document.getElementById("condition-list");
                 conditionList.innerHTML = "";
 
-                navigationTrace.forEach((trace, index) => {
+                // Display trace in reverse order (chronological forward order)
+                for (let i = navigationTrace.length - 1; i >= 0; i--) {
+                    const trace = navigationTrace[i];
                     const li = document.createElement("li");
 
                     let displayText;
-                    if (index === 0) {
-                        // Starting node
-                        displayText = `Start: ${trace.nodeName}`;
-                    } else {
-                        // Show: conditional node with prominent branch result
-                        displayText = `${trace.nodeName} [${trace.branchType.toUpperCase()}]`;
-                    }
+                    // Show: conditional node with prominent branch result
+                    const branchType = trace.branchType || 'unknown';
+                    displayText = `${trace.nodeName} [${branchType.toUpperCase()}]`;
 
                     li.textContent = displayText;
 
@@ -408,7 +406,7 @@
                     }
 
                     conditionList.appendChild(li);
-                });
+                }
             }
 
             function truncateTraceFromIndex(index) {
