@@ -188,6 +188,7 @@
             let backStack = [];
             let forwardStack = [];
             let navigationTrace = []; // Array of { nodeId, parentId, condition, nodeName }
+            let fullNavigationPath = []; // Complete path of all nodes visited
 
             let isNavigating = false;
             // let executionPointer; // Current node id
@@ -280,7 +281,36 @@
 
             function clearNavigationTrace() {
                 navigationTrace = [];
+                fullNavigationPath = [];
                 updateTracePanel();
+                updatePathHighlighting();
+            }
+
+            function updatePathHighlighting() {
+                // Clear all path highlighting
+                cy.elements().removeClass('path-start path-node path-edge');
+                
+                if (fullNavigationPath.length === 0) return;
+                
+                // Highlight the start node
+                const startNode = cy.getElementById(fullNavigationPath[0]);
+                startNode.addClass('path-start');
+                
+                // Highlight the path nodes and edges
+                for (let i = 1; i < fullNavigationPath.length; i++) {
+                    const nodeId = fullNavigationPath[i];
+                    const prevNodeId = fullNavigationPath[i - 1];
+                    
+                    // Highlight the node
+                    const node = cy.getElementById(nodeId);
+                    node.addClass('path-node');
+                    
+                    // Highlight the edge between previous and current node
+                    const edge = cy.edges(`[source="${nodeId}"][target="${prevNodeId}"]`);
+                    if (edge.length > 0) {
+                        edge.addClass('path-edge');
+                    }
+                }
             }
 
             function addToNavigationTrace(nodeId, parentId = null, condition = null) {
@@ -438,10 +468,14 @@
                 currentNodeId = nodeId;
                 cy.elements().removeClass('highlighted');
                 highlightCurrentNode(currentNodeId);
-
+                
                 // Clear existing navigation trace and start fresh
                 clearNavigationTrace();
                 addToNavigationTrace(nodeId);
+                
+                // Start new path tracking
+                fullNavigationPath = [nodeId];
+                updatePathHighlighting();
             }
 
             function focusOnNode(newNodeId, prevNodeId, condition = null) {
@@ -454,12 +488,6 @@
 
                 // Clear old highlights
                 cy.elements().removeClass('highlighted');
-
-                // Highlight edge from prev → new
-                // TODO - is this what we want?
-                // if (prevNodeId) {
-                //     cy.edges(`[source="${prevNodeId}"][target="${newNodeId}"]`).addClass('highlighted');
-                // }
 
                 // Focus viewport on new node
                 const node = cy.getElementById(newNodeId);
@@ -474,6 +502,12 @@
 
                 // Add to navigation trace
                 addToNavigationTrace(newNodeId, prevNodeId, condition);
+                
+                // Update full path tracking
+                if (!fullNavigationPath.includes(newNodeId)) {
+                    fullNavigationPath.push(newNodeId);
+                }
+                updatePathHighlighting();
             }
 
             function promptParentChoice(parents) {
@@ -759,12 +793,37 @@
                             }
                         },
                         {
-
                             selector: '.highlighted',
                             style: {
                                 'border-width': 4,
                                 'border-color': '#FFA726',
                                 'background-color': '#FFF3E0'
+                            }
+                        },
+                        {
+                            selector: '.path-start',
+                            style: {
+                                'border-width': 6,
+                                'border-color': '#4CAF50',
+                                'background-color': '#E8F5E8',
+                                'box-shadow': '0 0 20px #4CAF50'
+                            }
+                        },
+                        {
+                            selector: '.path-node',
+                            style: {
+                                'border-width': 3,
+                                'border-color': '#2196F3',
+                                'background-color': '#E3F2FD'
+                            }
+                        },
+                        {
+                            selector: '.path-edge',
+                            style: {
+                                'line-color': '#2196F3',
+                                'target-arrow-color': '#2196F3',
+                                'width': 4,
+                                'opacity': 0.8
                             }
                         }
                     ]
@@ -816,10 +875,14 @@
                             const node = e.target;
 
                             if (isNavigating) {
-                                currentNodeId = node.id();
+                                // Reset navigation and start fresh path tracking
                                 backStack = [];
                                 forwardStack = [];
+                                navigationTrace = [];
+                                fullNavigationPath = [node.id()];
+                                currentNodeId = node.id();
                                 navigateTo(node.id());
+                                updatePathHighlighting();
                             } else {
                                 handle_expand_collapse(node);
                             }
@@ -922,10 +985,7 @@
                     "fastly_key": secret
                 };
 
-                // fetch('./elements.json')
-                fetch("https://vcl-debugger.edgecompute.app/get_flow", {
-                    headers: headers
-                })
+                fetch('./elements.json')
                     .then(res => {
                         if (!res.ok) throw new Error("Failed to fetch elements.json");
                         return res.json();
