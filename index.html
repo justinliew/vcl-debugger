@@ -607,6 +607,16 @@
             function stepForward() {
                 if (forwardStack.length === 0) return;
                 const nextNode = forwardStack.pop();
+                
+                // Check if we're leaving a conditional node
+                const currentNode = cy.getElementById(currentNodeId);
+                const currentNodeType = currentNode.data('type');
+                
+                if (currentNodeType === 'conditional') {
+                    // Remove the current conditional node from the trace since we're leaving it
+                    navigationTrace = navigationTrace.filter(trace => trace.nodeId !== currentNodeId);
+                }
+                
                 backStack.push(currentNodeId);
 
                 // Find the condition for this forward step
