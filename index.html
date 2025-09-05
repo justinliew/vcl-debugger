@@ -313,15 +313,13 @@
                                 branchType = 'true';
                             } else if (conditionLower === 'false' || conditionLower === 'no') {
                                 branchType = 'false';
-                            } else if (conditionLower === 'fallthrough') {
-                                branchType = 'fallthrough';
                             } else if (condition.trim() === '') {
-                                branchType = 'blank';
+                                branchType = 'false';
                             } else {
                                 branchType = condition;
                             }
                         } else {
-                            branchType = 'blank';
+                            branchType = 'false';
                         }
 
                         navigationTrace.push({
