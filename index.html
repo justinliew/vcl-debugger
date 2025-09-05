@@ -388,21 +388,20 @@
 
                     li.textContent = displayText;
 
-                    // Style the current node differently
-                    if (trace.nodeId === currentNodeId) {
-                        li.style.backgroundColor = "#d4edda"; // Green for current
-                        li.style.fontWeight = "bold";
+                    // Color-code by branch type (consistent colors)
+                    if (trace.branchType === 'true') {
+                        li.style.backgroundColor = "#d1ecf1"; // Light blue for true
+                    } else if (trace.branchType === 'false') {
+                        li.style.backgroundColor = "#f8d7da"; // Light red for false
+                    } else if (trace.branchType === 'fallthrough') {
+                        li.style.backgroundColor = "#fff3cd"; // Light yellow for fallthrough
                     } else {
-                        // Color-code by branch type
-                        if (trace.branchType === 'true') {
-                            li.style.backgroundColor = "#d1ecf1"; // Light blue for true
-                        } else if (trace.branchType === 'false') {
-                            li.style.backgroundColor = "#f8d7da"; // Light red for false
-                        } else if (trace.branchType === 'fallthrough') {
-                            li.style.backgroundColor = "#fff3cd"; // Light yellow for fallthrough
-                        } else {
-                            li.style.backgroundColor = "#eef5ff"; // Default blue
-                        }
+                        li.style.backgroundColor = "#eef5ff"; // Default blue
+                    }
+
+                    // Bold the current node (but keep the same background color)
+                    if (trace.nodeId === currentNodeId) {
+                        li.style.fontWeight = "bold";
                     }
 
                     conditionList.appendChild(li);
@@ -467,11 +466,8 @@
                 // Remove current-node class from all nodes first
                 cy.nodes().removeClass('current-node');
                 // Add current-node class to the current node
-                console.log("highlighting current node:", currentNodeId);
                 const currentNode = cy.getElementById(currentNodeId);
-                console.log("found node:", currentNode.length > 0 ? "yes" : "no");
                 currentNode.addClass('current-node');
-                console.log("classes on node:", currentNode.classes());
             }
 
             function navigateTo(nodeId) {
