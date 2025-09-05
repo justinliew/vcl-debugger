@@ -503,10 +503,7 @@
                 // Add to navigation trace
                 addToNavigationTrace(newNodeId, prevNodeId, condition);
                 
-                // Update full path tracking
-                if (!fullNavigationPath.includes(newNodeId)) {
-                    fullNavigationPath.push(newNodeId);
-                }
+                // Update path highlighting (path tracking is handled by navigation functions)
                 updatePathHighlighting();
             }
 
@@ -632,6 +629,15 @@
                     chosenCondition = chosenParentObj.condition;
                 }
 
+                // Update path tracking for backward navigation
+                if (!fullNavigationPath.includes(chosenParent)) {
+                    fullNavigationPath.push(chosenParent);
+                } else {
+                    // If we're going to a node already in our path, truncate the path to that point
+                    const parentIndex = fullNavigationPath.indexOf(chosenParent);
+                    fullNavigationPath = fullNavigationPath.slice(0, parentIndex + 1);
+                }
+
                 // Don't truncate trace here - let the navigation build it naturally
                 forwardStack.push(currentNodeId);
                 backStack.push(chosenParent);
@@ -649,6 +655,15 @@
                 if (currentNodeType === 'conditional') {
                     // Remove the current conditional node from the trace since we're leaving it
                     navigationTrace = navigationTrace.filter(trace => trace.nodeId !== currentNodeId);
+                }
+                
+                // Update path tracking for forward navigation
+                if (!fullNavigationPath.includes(nextNode)) {
+                    fullNavigationPath.push(nextNode);
+                } else {
+                    // If we're going to a node already in our path, truncate the path to that point
+                    const nextNodeIndex = fullNavigationPath.indexOf(nextNode);
+                    fullNavigationPath = fullNavigationPath.slice(0, nextNodeIndex + 1);
                 }
                 
                 backStack.push(currentNodeId);
