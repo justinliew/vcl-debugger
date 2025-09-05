@@ -177,6 +177,7 @@
 
             let cy;
             let functionGraphs = new Map();
+            let currentlyLoadedFunction = null; // Track which function is currently loaded
 
             // for expand/collapse
             let expandCollapseApi;
@@ -716,11 +717,27 @@
             }
 
             function loadFunctionGraph(fnName) {
+                // Prevent reloading the same function
+                if (currentlyLoadedFunction === fnName && cy) {
+                    console.log(`Function ${fnName} is already loaded, skipping reload.`);
+                    return;
+                }
+
                 const { nodes, edges } = functionGraphs.get(fnName);
                 buildDataStructs(nodes, edges);
+                
+                // Clear navigation state when loading a new function
+                currentNodeId = null;
+                backStack = [];
+                forwardStack = [];
+                navigationTrace = [];
+                fullNavigationPath = [];
+                
                 if (cy) {
                     cy.destroy();
                 }
+
+                currentlyLoadedFunction = fnName; // Track the loaded function
 
                 cy = cytoscape({
                     container: document.getElementById('cy'),
