@@ -461,13 +461,20 @@
             }
 
             function highlightCurrentNode() {
-                cy.getElementById(currentNodeId).addClass('highlighted');
+                // Remove current-node class from all nodes first
+                cy.nodes().removeClass('current-node');
+                // Add current-node class to the current node
+                console.log("highlighting current node:", currentNodeId);
+                const currentNode = cy.getElementById(currentNodeId);
+                console.log("found node:", currentNode.length > 0 ? "yes" : "no");
+                currentNode.addClass('current-node');
+                console.log("classes on node:", currentNode.classes());
             }
 
             function navigateTo(nodeId) {
                 currentNodeId = nodeId;
-                cy.elements().removeClass('highlighted');
-                highlightCurrentNode(currentNodeId);
+                cy.elements().removeClass('highlighted current-node');
+                highlightCurrentNode();
                 
                 // Clear existing navigation trace and start fresh
                 clearNavigationTrace();
@@ -487,7 +494,7 @@
                 }
 
                 // Clear old highlights
-                cy.elements().removeClass('highlighted');
+                cy.elements().removeClass('highlighted current-node');
 
                 // Focus viewport on new node
                 const node = cy.getElementById(newNodeId);
@@ -498,7 +505,7 @@
                 });
 
                 currentNodeId = newNodeId;
-                highlightCurrentNode(currentNodeId);
+                highlightCurrentNode();
 
                 // Add to navigation trace
                 addToNavigationTrace(newNodeId, prevNodeId, condition);
@@ -553,7 +560,7 @@
 
                     // Function to highlight a specific parent node
                     function highlightParent(parentId) {
-                        // Clear all highlights
+                        // Clear all highlights except current-node
                         cy.elements().removeClass('highlighted');
 
                         // Highlight the selected parent
@@ -589,7 +596,7 @@
 
                         btn.onclick = () => {
                             modal.style.display = 'none';
-                            // Clear highlights before resolving
+                            // Clear highlights before resolving (but keep current-node)
                             cy.elements().removeClass('highlighted');
                             resolve({
                                 parentId: p.source,
@@ -839,6 +846,14 @@
                                 'target-arrow-color': '#2196F3',
                                 'width': 4,
                                 'opacity': 0.8
+                            }
+                        },
+                        {
+                            selector: 'node.current-node',
+                            style: {
+                                'border-width': 5,
+                                'border-color': '#E91E63',
+                                'background-color': '#FCE4EC'
                             }
                         }
                     ]
