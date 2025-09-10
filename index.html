@@ -290,22 +290,22 @@
             function updatePathHighlighting() {
                 // Clear all path highlighting
                 cy.elements().removeClass('path-start path-node path-edge');
-                
+
                 if (fullNavigationPath.length === 0) return;
-                
+
                 // Highlight the start node
                 const startNode = cy.getElementById(fullNavigationPath[0]);
                 startNode.addClass('path-start');
-                
+
                 // Highlight the path nodes and edges
                 for (let i = 1; i < fullNavigationPath.length; i++) {
                     const nodeId = fullNavigationPath[i];
                     const prevNodeId = fullNavigationPath[i - 1];
-                    
+
                     // Highlight the node
                     const node = cy.getElementById(nodeId);
                     node.addClass('path-node');
-                    
+
                     // Highlight the edge between previous and current node
                     const edge = cy.edges(`[source="${nodeId}"][target="${prevNodeId}"]`);
                     if (edge.length > 0) {
@@ -335,7 +335,7 @@
                     if (nodeType === 'conditional') {
                         // Check if this conditional node is already in the trace
                         const existingEntry = navigationTrace.find(trace => trace.nodeId === nodeId);
-                        
+
                         if (!existingEntry) {
                             const parentNode = cy.getElementById(parentId);
                             const parentName = parentNode.data('name') || parentId;
@@ -475,11 +475,11 @@
                 currentNodeId = nodeId;
                 cy.elements().removeClass('highlighted current-node');
                 highlightCurrentNode();
-                
+
                 // Clear existing navigation trace and start fresh
                 clearNavigationTrace();
                 addToNavigationTrace(nodeId);
-                
+
                 // Start new path tracking
                 fullNavigationPath = [nodeId];
                 updatePathHighlighting();
@@ -509,7 +509,7 @@
 
                 // Add to navigation trace
                 addToNavigationTrace(newNodeId, prevNodeId, condition);
-                
+
                 // Update path highlighting (path tracking is handled by navigation functions)
                 updatePathHighlighting();
             }
@@ -654,16 +654,16 @@
             function stepForward() {
                 if (forwardStack.length === 0) return;
                 const nextNode = forwardStack.pop();
-                
+
                 // Check if we're leaving a conditional node
                 const currentNode = cy.getElementById(currentNodeId);
                 const currentNodeType = currentNode.data('type');
-                
+
                 if (currentNodeType === 'conditional') {
                     // Remove the current conditional node from the trace since we're leaving it
                     navigationTrace = navigationTrace.filter(trace => trace.nodeId !== currentNodeId);
                 }
-                
+
                 // Update path tracking for forward navigation
                 if (!fullNavigationPath.includes(nextNode)) {
                     fullNavigationPath.push(nextNode);
@@ -672,7 +672,7 @@
                     const nextNodeIndex = fullNavigationPath.indexOf(nextNode);
                     fullNavigationPath = fullNavigationPath.slice(0, nextNodeIndex + 1);
                 }
-                
+
                 backStack.push(currentNodeId);
 
                 // Find the condition for this forward step
@@ -725,14 +725,14 @@
 
                 const { nodes, edges } = functionGraphs.get(fnName);
                 buildDataStructs(nodes, edges);
-                
+
                 // Clear navigation state when loading a new function
                 currentNodeId = null;
                 backStack = [];
                 forwardStack = [];
                 navigationTrace = [];
                 fullNavigationPath = [];
-                
+
                 if (cy) {
                     cy.destroy();
                 }
@@ -1031,7 +1031,10 @@
                     "fastly_key": secret
                 };
 
-                fetch('./elements.json')
+                // fetch('./elements.json')
+                fetch("https://vcl-debugger.edgecompute.app/get_flow", {
+                    headers: headers
+                })
                     .then(res => {
                         if (!res.ok) throw new Error("Failed to fetch elements.json");
                         return res.json();
